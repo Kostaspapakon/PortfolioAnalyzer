@@ -1,9 +1,15 @@
 from src.stock import Stock
+from src.portfolio import Portfolio
 
-apple = Stock("AAPL")
+google = Stock("GOOGL")
+nvidia = Stock("NVDA")
 
-apple.load_data()
-apple.calculate_returns()
+portfolio = Portfolio(
+    stocks=[google, nvidia],
+    weights=[0.5, 0.5]
+)
 
-print(apple.get_latest_price())
-print(apple.returns.head())
+portfolio.validate_weights()
+portfolio.load_all_data()
+
+print("Data loaded successfully")
