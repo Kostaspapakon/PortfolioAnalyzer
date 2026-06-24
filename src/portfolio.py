@@ -38,3 +38,9 @@ class Portfolio:
     def calculate_volatility(self):
         # Annualized portfolio volatility
         return self.portfolio_returns.std() * (252 ** 0.5)
+    
+    def calculate_cumulative_return(self):
+    # Calculate portfolio growth over time
+    cumulative_growth = (1 + self.portfolio_returns).cumprod()
+
+    return cumulative_growth
