@@ -22,3 +22,15 @@ class Portfolio:
         for stock in self.stocks:
             stock.load_data()
             stock.calculate_returns()
+
+    def calculate_portfolio_returns(self):
+         # Create a dataframe with all stock returns
+        returns_df = pd.DataFrame()
+
+        for stock in self.stocks:
+            returns_df[stock.ticker] = stock.returns
+
+        # Calculate weighted portfolio returns
+        self.portfolio_returns = (returns_df * self.weights).sum(axis=1)
+
+        return self.portfolio_returns
