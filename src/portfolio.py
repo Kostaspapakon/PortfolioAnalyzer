@@ -20,5 +20,5 @@ class Portfolio:
     def load_all_data(self):
         # Download data for every stock
         for stock in self.stocks:
-        stock.load_data()
-        stock.calculate_returns()
+            stock.load_data()
+            stock.calculate_returns()
