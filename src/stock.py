@@ -15,3 +15,10 @@ class Stock:
         self.prices = data["Close"]
 
         return self.prices
+    
+    def calculate_returns(self):
+        #Ensure data is loaded before calculation
+        if self.prices is None:
+            raise ValueError("Data not loaded. Call load_data() first.")
+
+
