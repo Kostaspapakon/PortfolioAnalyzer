@@ -20,5 +20,15 @@ class Stock:
         #Ensure data is loaded before calculation
         if self.prices is None:
             raise ValueError("Data not loaded. Call load_data() first.")
+        #Calculate daily percentage returns 
+        self.returns = self.prices.pct_change().dropna()
+        return self.returns
+    
+    def get_latest_price(self):
+        # Ensure data exists
+        if self.prices is None:
+            raise ValueError("Data not loaded. Call load_data() first.")
 
+        # Return most recent price
+        return self.prices.iloc[-1]
 
