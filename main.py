@@ -12,6 +12,8 @@ portfolio = Portfolio(
 portfolio.validate_weights()
 portfolio.load_all_data()
 portfolio_returns = portfolio.calculate_portfolio_returns()
+volatility = portfolio.calculate_volatility()
 
+print(f"Portfolio volatility: {volatility:.2%}")
 print(portfolio_returns.head())
 print("Data loaded successfully")
