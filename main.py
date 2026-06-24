@@ -11,5 +11,7 @@ portfolio = Portfolio(
 
 portfolio.validate_weights()
 portfolio.load_all_data()
+portfolio_returns = portfolio.calculate_portfolio_returns()
 
+print(portfolio_returns.head())
 print("Data loaded successfully")
