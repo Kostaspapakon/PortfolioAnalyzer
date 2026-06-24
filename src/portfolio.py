@@ -11,3 +11,8 @@ class Portfolio:
 
         # Portfolio returns
         self.portfolio_returns = None
+
+    def validate_weights(self):
+        # Weights must sum to 1
+        if abs(sum(self.weights) - 1.0) > 0.0001:
+            raise ValueError("Portfolio weights must sum to 1.")
