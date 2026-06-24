@@ -34,3 +34,7 @@ class Portfolio:
         self.portfolio_returns = (returns_df * self.weights).sum(axis=1)
 
         return self.portfolio_returns
+    
+    def calculate_volatility(self):
+        # Annualized portfolio volatility
+        return self.portfolio_returns.std() * (252 ** 0.5)
