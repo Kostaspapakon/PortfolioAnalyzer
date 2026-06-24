@@ -16,3 +16,9 @@ class Portfolio:
         # Weights must sum to 1
         if abs(sum(self.weights) - 1.0) > 0.0001:
             raise ValueError("Portfolio weights must sum to 1.")
+        
+    def load_all_data(self):
+        # Download data for every stock
+        for stock in self.stocks:
+        stock.load_data()
+        stock.calculate_returns()
