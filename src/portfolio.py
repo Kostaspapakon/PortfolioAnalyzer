@@ -69,3 +69,9 @@ class Portfolio:
         
         return benchmark_value
     
+    def calculate_total_return(self, portfolio_value, initial_investment):
+        # Calculate total portfolio return
+        total_return = (portfolio_value.iloc[-1] / initial_investment - 1        )
+
+        return total_return
+    
