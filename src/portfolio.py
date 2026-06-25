@@ -44,3 +44,12 @@ class Portfolio:
         cumulative_growth = (1 + self.portfolio_returns).cumprod()
 
         return cumulative_growth
+    
+    def calculate_portfolio_value(self, initial_investment):
+        # Calculate cumulative growth factor
+        cumulative_growth = (1 + self.portfolio_returns).cumprod()
+
+        # Convert growth factor to portfolio value
+        portfolio_value = cumulative_growth * initial_investment
+
+        return portfolio_value

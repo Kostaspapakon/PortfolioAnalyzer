@@ -14,7 +14,14 @@ portfolio.load_all_data()
 portfolio_returns = portfolio.calculate_portfolio_returns()
 volatility = portfolio.calculate_volatility()
 growth = portfolio.calculate_cumulative_return()
+initial_investment = float(
+    input("Enter initial investment amount (€): ")
+)
 
-print(growth.tail())
+portfolio_value = portfolio.calculate_portfolio_value(
+    initial_investment
+)
+
+print(portfolio_value.tail())
 print(f"Portfolio volatility: {volatility:.2%}")
 print(portfolio_returns.head())
