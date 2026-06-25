@@ -71,7 +71,14 @@ class Portfolio:
     
     def calculate_total_return(self, portfolio_value, initial_investment):
         # Calculate total portfolio return
-        total_return = (portfolio_value.iloc[-1] / initial_investment - 1        )
+        total_return = (portfolio_value.iloc[-1] / initial_investment - 1)
 
         return total_return
     
+    def calculate_benchmark_return(self, benchmark_value, initial_investment):
+        benchmark_return = (benchmark_value.iloc[-1] / initial_investment - 1)
+
+        return benchmark_return
+    
+    def calculate_outperformance(self, portfolio_return, benchmark_return):
+        return portfolio_return - benchmark_return
