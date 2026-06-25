@@ -1,4 +1,5 @@
 import pandas as pd
+from src.stock import Stock
 
 
 class Portfolio:
@@ -53,3 +54,18 @@ class Portfolio:
         portfolio_value = cumulative_growth * initial_investment
 
         return portfolio_value
+    
+    def load_benchmark(self, ticker="^GSPC"):
+        benchmark = Stock(ticker)
+
+        benchmark.load_data()
+        benchmark.calculate_returns()
+
+        return benchmark
+    
+    def calculate_benchmark_value(self, benchmark, initial_investment):
+        cumulative_growth = (1 + benchmark.returns).cumprod()
+        benchmark_value = (cumulative_growth * initial_investment)
+        
+        return benchmark_value
+    

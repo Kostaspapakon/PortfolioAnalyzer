@@ -3,25 +3,22 @@ import matplotlib.pyplot as plt
 
 class Visualizer:
 
-    def plot_portfolio_value(self, portfolio_value):
-        # Create chart figure
+    def plot_comparison(self, portfolio_value, benchmark_value):
         plt.figure(figsize=(12, 6))
 
-        # Plot portfolio value
-        plt.plot(portfolio_value)
+        plt.plot(portfolio_value, label="Portfolio")
 
-        # Chart title
-        plt.title("Portfolio Value Over Time")
+        plt.plot(benchmark_value, label="S&P 500")
 
-        # Axis labels
+        plt.title("Portfolio vs Benchmark")
+
         plt.xlabel("Date")
-        plt.ylabel("Portfolio Value (€)")
+        plt.ylabel("Value (€)")
 
-        # Grid for readability
         plt.grid(True)
 
-        # Adjust layout
+        plt.legend()
+
         plt.tight_layout()
 
-        # Display chart
         plt.show()

@@ -16,18 +16,13 @@ portfolio_returns = portfolio.calculate_portfolio_returns()
 volatility = portfolio.calculate_volatility()
 growth = portfolio.calculate_cumulative_return()
 initial_investment = float(
-    input("Enter initial investment amount (€): ")
-)
+    input("Enter initial investment amount (€): "))
+portfolio_value = portfolio.calculate_portfolio_value(initial_investment)
+benchmark = portfolio.load_benchmark()
 
-portfolio_value = portfolio.calculate_portfolio_value(
-    initial_investment
-)
-
+benchmark_value = (portfolio.calculate_benchmark_value(benchmark,initial_investment))
 visualizer = Visualizer()
-
-visualizer.plot_portfolio_value(
-    portfolio_value
-)
+visualizer.plot_comparison(portfolio_value, benchmark_value)
 
 print(growth.tail())
 print(f"Portfolio volatility: {volatility:.2%}")
