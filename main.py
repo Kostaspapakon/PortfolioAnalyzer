@@ -1,5 +1,6 @@
 from src.stock import Stock
 from src.portfolio import Portfolio
+from src.visualizer import Visualizer
 
 google = Stock("GOOGL")
 nvidia = Stock("NVDA")
@@ -22,6 +23,13 @@ portfolio_value = portfolio.calculate_portfolio_value(
     initial_investment
 )
 
-print(portfolio_value.tail())
+visualizer = Visualizer()
+
+visualizer.plot_portfolio_value(
+    portfolio_value
+)
+
+print(growth.tail())
 print(f"Portfolio volatility: {volatility:.2%}")
 print(portfolio_returns.head())
+print(portfolio_value.tail())

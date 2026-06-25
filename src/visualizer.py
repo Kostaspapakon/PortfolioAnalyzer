@@ -4,21 +4,24 @@ import matplotlib.pyplot as plt
 class Visualizer:
 
     def plot_portfolio_value(self, portfolio_value):
-        # Create figure
+        # Create chart figure
         plt.figure(figsize=(12, 6))
 
-        # Plot portfolio value through time
+        # Plot portfolio value
         plt.plot(portfolio_value)
 
-        # Add chart title
+        # Chart title
         plt.title("Portfolio Value Over Time")
 
-        # Label axes
+        # Axis labels
         plt.xlabel("Date")
         plt.ylabel("Portfolio Value (€)")
 
-        # Add grid
+        # Grid for readability
         plt.grid(True)
+
+        # Adjust layout
+        plt.tight_layout()
 
         # Display chart
         plt.show()
