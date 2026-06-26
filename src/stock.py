@@ -12,7 +12,7 @@ class Stock:
         data = yf.download(self.ticker, start=start, end=end)
 
         # Keep only closing prices
-        self.prices = data["Close"]
+        self.prices = data["Close"].squeeze()
 
         return self.prices
     
