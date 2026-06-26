@@ -1,6 +1,8 @@
+import os
 import pandas as pd
 from src.stock import Stock
 from src.metrics import Metrics
+import os
 
 
 class Portfolio:
@@ -91,3 +93,17 @@ class Portfolio:
 
     def calculate_max_drawdown(self, portfolio_value):
         return self.metrics.max_drawdown(portfolio_value)
+
+    def export_to_csv(self, portfolio_value, benchmark_value, summary: dict, output_dir="results"):
+        os.makedirs(output_dir, exist_ok=True)
+
+        values_df = pd.DataFrame({
+            "Portfolio Value (€)": portfolio_value,
+            "Benchmark Value (€)": benchmark_value,
+        })
+        values_df.to_csv(os.path.join(output_dir, "portfolio_values.csv"))
+
+        summary_df = pd.DataFrame([summary])
+        summary_df.to_csv(os.path.join(output_dir, "portfolio_summary.csv"), index=False)
+
+        print(f"\nResults exported to '{output_dir}/' folder.")

@@ -55,6 +55,17 @@ sharpe = portfolio.calculate_sharpe_ratio()
 max_drawdown = portfolio.calculate_max_drawdown(portfolio_value)
 
 
+summary = {
+    "Initial Investment (€)": initial_investment,
+    "Final Portfolio Value (€)": portfolio_value.iloc[-1],
+    "Portfolio Return": f"{portfolio_return:.2%}",
+    "Benchmark Return": f"{benchmark_return:.2%}",
+    "Outperformance": f"{outperformance:.2%}",
+    "Volatility": f"{volatility:.2%}",
+    "Sharpe Ratio": f"{sharpe:.2f}",
+    "Max Drawdown": f"{max_drawdown:.2%}",
+}
+
 print("\n===== PORTFOLIO SUMMARY =====\n")
 
 print(f"Initial Investment:    €{initial_investment:,.2f}")
@@ -65,3 +76,5 @@ print(f"Outperformance:        {outperformance:.2%}")
 print(f"Portfolio Volatility:  {volatility:.2%}")
 print(f"Sharpe Ratio:          {sharpe:.2f}")
 print(f"Max Drawdown:          {max_drawdown:.2%}")
+
+portfolio.export_to_csv(portfolio_value, benchmark_value, summary)
