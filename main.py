@@ -28,7 +28,48 @@ portfolio_return = portfolio.calculate_total_return(portfolio_value, initial_inv
 benchmark_return = portfolio.calculate_benchmark_return(benchmark_value, initial_investment)
 
 outperformance = portfolio.calculate_outperformance(portfolio_return, benchmark_return)
+sharpe = portfolio.calculate_sharpe_ratio()
+max_drawdown = portfolio.calculate_max_drawdown(portfolio_value)
 
 
-print(type(benchmark_return))
-print(benchmark_return)
+print("\n===== PORTFOLIO SUMMARY =====\n")
+
+print(
+    f"Initial Investment: "
+    f"€{initial_investment:,.2f}"
+)
+
+print(
+    f"Final Portfolio Value: "
+    f"€{portfolio_value.iloc[-1]:,.2f}"
+)
+
+print(
+    f"Portfolio Return: "
+    f"{portfolio_return:.2%}"
+)
+
+print(
+    f"Benchmark Return: "
+    f"{benchmark_return:.2%}"
+)
+
+print(
+    f"Outperformance: "
+    f"{outperformance:.2%}"
+)
+
+print(
+    f"Portfolio Volatility: "
+    f"{volatility:.2%}"
+)
+
+print(
+    f"Sharpe Ratio: "
+    f"{sharpe:.2f}"
+)
+
+print(
+    f"Max Drawdown: "
+    f"{max_drawdown:.2%}"
+)

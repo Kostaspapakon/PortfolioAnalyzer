@@ -1,5 +1,6 @@
 import pandas as pd
 from src.stock import Stock
+from src.metrics import Metrics
 
 
 class Portfolio:
@@ -12,6 +13,8 @@ class Portfolio:
 
         # Portfolio returns
         self.portfolio_returns = None
+
+        self.metrics = Metrics()
 
     def validate_weights(self):
         # Weights must sum to 1
@@ -82,3 +85,9 @@ class Portfolio:
     
     def calculate_outperformance(self, portfolio_return, benchmark_return):
         return portfolio_return - benchmark_return
+
+    def calculate_sharpe_ratio(self):
+        return self.metrics.sharpe_ratio(self.portfolio_returns)
+
+    def calculate_max_drawdown(self, portfolio_value):
+        return self.metrics.max_drawdown(portfolio_value)
