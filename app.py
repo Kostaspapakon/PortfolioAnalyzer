@@ -72,6 +72,13 @@ if analyze:
     col7.metric("Sharpe Ratio", f"{sharpe:.2f}")
     col8.metric("Max Drawdown", f"{max_drawdown:.2%}")
 
+    # ── Correlation Matrix ─────────────────────────────────────────────────────
+    if len(tickers) > 1:
+        st.subheader("Correlation Matrix")
+        corr_matrix = portfolio.calculate_correlation()
+        corr_fig = visualizer.plot_correlation(corr_matrix)
+        st.plotly_chart(corr_fig, use_container_width=True)
+
     # ── Download ───────────────────────────────────────────────────────────────
     st.subheader("Export Results")
 

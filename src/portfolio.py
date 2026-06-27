@@ -94,6 +94,10 @@ class Portfolio:
     def calculate_max_drawdown(self, portfolio_value):
         return self.metrics.max_drawdown(portfolio_value)
 
+    def calculate_correlation(self):
+        returns_df = pd.DataFrame({stock.ticker: stock.returns for stock in self.stocks})
+        return returns_df.corr()
+
     def export_to_csv(self, portfolio_value, benchmark_value, summary: dict, output_dir="results"):
         os.makedirs(output_dir, exist_ok=True)
 

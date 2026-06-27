@@ -1,4 +1,5 @@
 import plotly.graph_objects as go
+import plotly.figure_factory as ff
 
 
 class Visualizer:
@@ -27,5 +28,24 @@ class Visualizer:
             hovermode="x unified",
             legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
         )
+
+        return fig
+
+    def plot_correlation(self, corr_matrix):
+        tickers = list(corr_matrix.columns)
+        values = corr_matrix.values.tolist()
+
+        fig = ff.create_annotated_heatmap(
+            z=values,
+            x=tickers,
+            y=tickers,
+            colorscale="RdBu",
+            reversescale=True,
+            zmin=-1,
+            zmax=1,
+            showscale=True,
+        )
+
+        fig.update_layout(title="Correlation Matrix")
 
         return fig
