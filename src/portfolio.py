@@ -1,8 +1,8 @@
 import os
+import numpy as np
 import pandas as pd
 from src.stock import Stock
 from src.metrics import Metrics
-import os
 
 
 class Portfolio:
