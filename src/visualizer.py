@@ -49,3 +49,44 @@ class Visualizer:
         fig.update_layout(title="Correlation Matrix")
 
         return fig
+
+    def plot_efficient_frontier(self, frontier_df, tickers):
+        best_idx = frontier_df["Sharpe"].idxmax()
+        best = frontier_df.loc[best_idx]
+
+        fig = go.Figure()
+
+        fig.add_trace(go.Scatter(
+            x=frontier_df["Volatility"],
+            y=frontier_df["Return"],
+            mode="markers",
+            marker=dict(
+                color=frontier_df["Sharpe"],
+                colorscale="Viridis",
+                colorbar=dict(title="Sharpe Ratio"),
+                size=4,
+                opacity=0.6,
+            ),
+            name="Portfolios",
+            hovertemplate="Volatility: %{x:.2%}<br>Return: %{y:.2%}<extra></extra>",
+        ))
+
+        weights_str = ", ".join(f"{t}: {w:.1%}" for t, w in zip(tickers, best["Weights"]))
+        fig.add_trace(go.Scatter(
+            x=[best["Volatility"]],
+            y=[best["Return"]],
+            mode="markers",
+            marker=dict(color="red", size=14, symbol="star"),
+            name=f"Max Sharpe ({weights_str})",
+        ))
+
+        fig.update_layout(
+            title="Efficient Frontier",
+            xaxis_title="Volatility (Risk)",
+            yaxis_title="Expected Return",
+            xaxis_tickformat=".0%",
+            yaxis_tickformat=".0%",
+            hovermode="closest",
+        )
+
+        return fig

@@ -98,6 +98,20 @@ class Portfolio:
         returns_df = pd.DataFrame({stock.ticker: stock.returns for stock in self.stocks})
         return returns_df.corr()
 
+    def calculate_efficient_frontier(self, num_portfolios=5000):
+        returns_df = pd.DataFrame({stock.ticker: stock.returns for stock in self.stocks})
+        n = len(self.stocks)
+        results = []
+
+        for _ in range(num_portfolios):
+            w = np.random.dirichlet(np.ones(n))
+            ret = (returns_df * w).sum(axis=1).mean() * 252
+            vol = (returns_df * w).sum(axis=1).std() * (252 ** 0.5)
+            sharpe = (ret - self.metrics.risk_free_rate) / vol
+            results.append({"Return": ret, "Volatility": vol, "Sharpe": sharpe, "Weights": w})
+
+        return pd.DataFrame(results)
+
     def export_to_csv(self, portfolio_value, benchmark_value, summary: dict, output_dir="results"):
         os.makedirs(output_dir, exist_ok=True)
 

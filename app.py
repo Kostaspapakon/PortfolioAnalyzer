@@ -72,6 +72,14 @@ if analyze:
     col7.metric("Sharpe Ratio", f"{sharpe:.2f}")
     col8.metric("Max Drawdown", f"{max_drawdown:.2%}")
 
+    # ── Efficient Frontier ─────────────────────────────────────────────────────
+    if len(tickers) > 1:
+        st.subheader("Efficient Frontier")
+        with st.spinner("Simulating portfolios..."):
+            frontier_df = portfolio.calculate_efficient_frontier()
+        frontier_fig = visualizer.plot_efficient_frontier(frontier_df, tickers)
+        st.plotly_chart(frontier_fig, use_container_width=True)
+
     # ── Correlation Matrix ─────────────────────────────────────────────────────
     if len(tickers) > 1:
         st.subheader("Correlation Matrix")
