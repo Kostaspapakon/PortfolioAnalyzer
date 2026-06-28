@@ -51,24 +51,27 @@ class Visualizer:
         return fig
 
     def plot_monte_carlo(self, simulation_df, initial_investment):
-        fig = go.Figure()
-
-        for col in simulation_df.columns:
-            fig.add_trace(go.Scatter(
-                y=simulation_df[col],
-                mode="lines",
-                line=dict(color="lightgray", width=0.5),
-                showlegend=False,
-                hoverinfo="skip",
-            ))
-
         mean_path = simulation_df.mean(axis=1)
         p95 = simulation_df.quantile(0.95, axis=1)
         p05 = simulation_df.quantile(0.05, axis=1)
+        days = list(range(len(mean_path)))
 
-        fig.add_trace(go.Scatter(y=mean_path, mode="lines", name="Mean", line=dict(color="#2196F3", width=2)))
-        fig.add_trace(go.Scatter(y=p95, mode="lines", name="95th Percentile", line=dict(color="#4CAF50", width=2, dash="dash")))
-        fig.add_trace(go.Scatter(y=p05, mode="lines", name="5th Percentile", line=dict(color="#F44336", width=2, dash="dash")))
+        fig = go.Figure()
+
+        # Shaded area between 5th and 95th percentile
+        fig.add_trace(go.Scatter(
+            x=days + days[::-1],
+            y=list(p95) + list(p05[::-1]),
+            fill="toself",
+            fillcolor="rgba(33, 150, 243, 0.15)",
+            line=dict(color="rgba(255,255,255,0)"),
+            name="5th–95th Percentile Range",
+            hoverinfo="skip",
+        ))
+
+        fig.add_trace(go.Scatter(x=days, y=p95, mode="lines", name="Best Case (95th)", line=dict(color="#4CAF50", width=1.5, dash="dash")))
+        fig.add_trace(go.Scatter(x=days, y=p05, mode="lines", name="Worst Case (5th)", line=dict(color="#F44336", width=1.5, dash="dash")))
+        fig.add_trace(go.Scatter(x=days, y=mean_path, mode="lines", name="Mean", line=dict(color="#2196F3", width=2.5)))
 
         fig.add_hline(y=initial_investment, line_dash="dot", line_color="orange", annotation_text="Initial Investment")
 
