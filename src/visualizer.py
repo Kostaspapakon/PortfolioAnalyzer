@@ -50,6 +50,37 @@ class Visualizer:
 
         return fig
 
+    def plot_monte_carlo(self, simulation_df, initial_investment):
+        fig = go.Figure()
+
+        for col in simulation_df.columns:
+            fig.add_trace(go.Scatter(
+                y=simulation_df[col],
+                mode="lines",
+                line=dict(color="lightgray", width=0.5),
+                showlegend=False,
+                hoverinfo="skip",
+            ))
+
+        mean_path = simulation_df.mean(axis=1)
+        p95 = simulation_df.quantile(0.95, axis=1)
+        p05 = simulation_df.quantile(0.05, axis=1)
+
+        fig.add_trace(go.Scatter(y=mean_path, mode="lines", name="Mean", line=dict(color="#2196F3", width=2)))
+        fig.add_trace(go.Scatter(y=p95, mode="lines", name="95th Percentile", line=dict(color="#4CAF50", width=2, dash="dash")))
+        fig.add_trace(go.Scatter(y=p05, mode="lines", name="5th Percentile", line=dict(color="#F44336", width=2, dash="dash")))
+
+        fig.add_hline(y=initial_investment, line_dash="dot", line_color="orange", annotation_text="Initial Investment")
+
+        fig.update_layout(
+            title=f"Monte Carlo Simulation ({simulation_df.shape[1]} scenarios, 1 year)",
+            xaxis_title="Trading Days",
+            yaxis_title="Portfolio Value (€)",
+            hovermode="x unified",
+        )
+
+        return fig
+
     def plot_efficient_frontier(self, frontier_df, tickers):
         best_idx = frontier_df["Sharpe"].idxmax()
         best = frontier_df.loc[best_idx]

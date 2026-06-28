@@ -72,6 +72,19 @@ if analyze:
     col7.metric("Sharpe Ratio", f"{sharpe:.2f}")
     col8.metric("Max Drawdown", f"{max_drawdown:.2%}")
 
+    # ── Monte Carlo Simulation ─────────────────────────────────────────────────
+    st.subheader("Monte Carlo Simulation")
+    with st.spinner("Running simulations..."):
+        simulation_df = portfolio.simulate_monte_carlo(initial_investment)
+    monte_fig = visualizer.plot_monte_carlo(simulation_df, initial_investment)
+    st.plotly_chart(monte_fig, use_container_width=True)
+
+    final_values = simulation_df.iloc[-1]
+    mc_col1, mc_col2, mc_col3 = st.columns(3)
+    mc_col1.metric("Mean Final Value", f"€{final_values.mean():,.2f}")
+    mc_col2.metric("Best Case (95th)", f"€{final_values.quantile(0.95):,.2f}")
+    mc_col3.metric("Worst Case (5th)", f"€{final_values.quantile(0.05):,.2f}")
+
     # ── Efficient Frontier ─────────────────────────────────────────────────────
     if len(tickers) > 1:
         st.subheader("Efficient Frontier")

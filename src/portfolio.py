@@ -98,6 +98,16 @@ class Portfolio:
         returns_df = pd.DataFrame({stock.ticker: stock.returns for stock in self.stocks})
         return returns_df.corr()
 
+    def simulate_monte_carlo(self, initial_investment, simulations=1000, days=252):
+        mean = self.portfolio_returns.mean()
+        std = self.portfolio_returns.std()
+
+        shocks = np.random.normal(mean, std, (days, simulations))
+        daily_returns = 1 + shocks
+        paths = np.cumprod(daily_returns, axis=0)
+
+        return pd.DataFrame(paths * initial_investment)
+
     def calculate_efficient_frontier(self, num_portfolios=5000):
         returns_df = pd.DataFrame({stock.ticker: stock.returns for stock in self.stocks})
         n = len(self.stocks)
