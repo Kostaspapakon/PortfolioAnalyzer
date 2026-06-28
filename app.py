@@ -80,10 +80,19 @@ if analyze:
     st.plotly_chart(monte_fig, use_container_width=True)
 
     final_values = simulation_df.iloc[-1]
+    mean_val = final_values.mean()
+    best_val = final_values.quantile(0.95)
+    worst_val = final_values.quantile(0.05)
+
+    def format_delta(value, initial):
+        diff = value - initial
+        sign = "+" if diff >= 0 else "-"
+        return f"{sign}€{abs(diff):,.2f}"
+
     mc_col1, mc_col2, mc_col3 = st.columns(3)
-    mc_col1.metric("Mean Final Value", f"€{final_values.mean():,.2f}")
-    mc_col2.metric("Best Case (95th)", f"€{final_values.quantile(0.95):,.2f}")
-    mc_col3.metric("Worst Case (5th)", f"€{final_values.quantile(0.05):,.2f}")
+    mc_col1.metric("Mean Final Value", f"€{mean_val:,.2f}", delta=format_delta(mean_val, initial_investment))
+    mc_col2.metric("Best Case (95th percentile)", f"€{best_val:,.2f}", delta=format_delta(best_val, initial_investment))
+    mc_col3.metric("Worst Case (5th percentile)", f"€{worst_val:,.2f}", delta=format_delta(worst_val, initial_investment))
 
     # ── Efficient Frontier ─────────────────────────────────────────────────────
     if len(tickers) > 1:
