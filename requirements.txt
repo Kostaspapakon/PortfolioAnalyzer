@@ -4,3 +4,4 @@ matplotlib
 yfinance
 streamlit
 plotly
+scipy
