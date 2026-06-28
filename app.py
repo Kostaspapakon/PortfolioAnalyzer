@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+import plotly.graph_objects as go
 from src.stock import Stock
 from src.portfolio import Portfolio
 from src.visualizer import Visualizer
@@ -71,6 +72,26 @@ if analyze:
     col6.metric("Volatility", f"{volatility:.2%}")
     col7.metric("Sharpe Ratio", f"{sharpe:.2f}")
     col8.metric("Max Drawdown", f"{max_drawdown:.2%}")
+
+    # ── Markowitz Optimization ─────────────────────────────────────────────────
+    if len(tickers) > 1:
+        st.subheader("Markowitz Portfolio Optimization")
+        with st.spinner("Optimizing weights..."):
+            optimal_weights = portfolio.optimize_portfolio()
+
+        opt_col1, opt_col2 = st.columns([1, 2])
+        with opt_col1:
+            st.markdown("**Optimal Weights:**")
+            for ticker, weight in optimal_weights.items():
+                st.metric(ticker, f"{weight:.1%}")
+        with opt_col2:
+            opt_fig = go.Figure(go.Pie(
+                labels=list(optimal_weights.keys()),
+                values=list(optimal_weights.values()),
+                hole=0.4,
+            ))
+            opt_fig.update_layout(title="Optimal Allocation", margin=dict(t=40, b=0, l=0, r=0))
+            st.plotly_chart(opt_fig, use_container_width=True)
 
     # ── Monte Carlo Simulation ─────────────────────────────────────────────────
     st.subheader("Monte Carlo Simulation")

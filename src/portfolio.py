@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import pandas as pd
+from scipy.optimize import minimize
 from src.stock import Stock
 from src.metrics import Metrics
 
@@ -107,6 +108,30 @@ class Portfolio:
         paths = np.cumprod(daily_returns, axis=0)
 
         return pd.DataFrame(paths * initial_investment)
+
+    def optimize_portfolio(self):
+        returns_df = pd.DataFrame({stock.ticker: stock.returns for stock in self.stocks})
+        n = len(self.stocks)
+
+        def negative_sharpe(weights):
+            r = (returns_df * weights).sum(axis=1)
+            ret = r.mean() * 252
+            vol = r.std() * (252 ** 0.5)
+            return -(ret - self.metrics.risk_free_rate) / vol
+
+        initial_weights = [1 / n for _ in range(n)]
+        bounds = [(0, 1) for _ in range(n)]
+        constraints = {"type": "eq", "fun": lambda w: sum(w) - 1}
+
+        result = minimize(
+            fun=negative_sharpe,
+            x0=initial_weights,
+            bounds=bounds,
+            constraints=constraints,
+            method="SLSQP"
+        )
+
+        return dict(zip([stock.ticker for stock in self.stocks], result.x))
 
     def calculate_efficient_frontier(self, num_portfolios=5000):
         returns_df = pd.DataFrame({stock.ticker: stock.returns for stock in self.stocks})
