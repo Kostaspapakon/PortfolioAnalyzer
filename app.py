@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
+from datetime import date, timedelta
 from src.stock import Stock
 from src.portfolio import Portfolio
 from src.visualizer import Visualizer
@@ -15,6 +16,23 @@ with st.sidebar:
     tickers_input = st.text_input("Stock Tickers (comma-separated)", value="AAPL, NVDA")
     weights_input = st.text_input("Weights (comma-separated, must sum to 1)", value="0.5, 0.5")
     initial_investment = st.number_input("Initial Investment (€)", min_value=1.0, value=10000.0, step=100.0)
+
+    st.divider()
+    st.subheader("Date Range")
+
+    preset = st.radio("Period", ["1Y", "3Y", "5Y", "10Y", "Custom"], horizontal=True)
+
+    today = date.today()
+    presets = {"1Y": 365, "3Y": 3 * 365, "5Y": 5 * 365, "10Y": 10 * 365}
+
+    if preset != "Custom":
+        start_date = today - timedelta(days=presets[preset])
+        end_date = today
+        st.caption(f"From {start_date} to {end_date}")
+    else:
+        start_date = st.date_input("Start Date", value=date(2010, 1, 1))
+        end_date = st.date_input("End Date", value=today)
+
     analyze = st.button("Analyze", use_container_width=True)
 
 # ── Main ───────────────────────────────────────────────────────────────────────
@@ -40,12 +58,12 @@ if analyze:
         stocks = [Stock(ticker) for ticker in tickers]
         portfolio = Portfolio(stocks=stocks, weights=weights)
         portfolio.validate_weights()
-        portfolio.load_all_data()
+        portfolio.load_all_data(start=start_date.strftime("%Y-%m-%d"), end=end_date.strftime("%Y-%m-%d"))
 
         portfolio_returns = portfolio.calculate_portfolio_returns()
         volatility = portfolio.calculate_volatility()
         portfolio_value = portfolio.calculate_portfolio_value(initial_investment)
-        benchmark = portfolio.load_benchmark()
+        benchmark = portfolio.load_benchmark(start=start_date.strftime("%Y-%m-%d"), end=end_date.strftime("%Y-%m-%d"))
         benchmark_value = portfolio.calculate_benchmark_value(benchmark, initial_investment)
         portfolio_return = portfolio.calculate_total_return(portfolio_value, initial_investment)
         benchmark_return = portfolio.calculate_benchmark_return(benchmark_value, initial_investment)

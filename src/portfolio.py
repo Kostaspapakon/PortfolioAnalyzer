@@ -24,10 +24,9 @@ class Portfolio:
         if abs(sum(self.weights) - 1.0) > 0.0001:
             raise ValueError("Portfolio weights must sum to 1.")
         
-    def load_all_data(self):
-        # Download data for every stock
+    def load_all_data(self, start="2020-01-01", end=None):
         for stock in self.stocks:
-            stock.load_data()
+            stock.load_data(start=start, end=end)
             stock.calculate_returns()
 
     def calculate_portfolio_returns(self):
@@ -61,10 +60,10 @@ class Portfolio:
 
         return portfolio_value
     
-    def load_benchmark(self, ticker="^GSPC"):
+    def load_benchmark(self, ticker="^GSPC", start="2020-01-01", end=None):
         benchmark = Stock(ticker)
 
-        benchmark.load_data()
+        benchmark.load_data(start=start, end=end)
         benchmark.calculate_returns()
 
         return benchmark
