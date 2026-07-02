@@ -9,6 +9,29 @@ from src.visualizer import Visualizer
 st.set_page_config(page_title="Portfolio Analyzer", layout="wide")
 st.title("Portfolio Analyzer")
 
+
+def show_risk_warnings(max_drawdown, sharpe, outperformance):
+    st.subheader("Risk Analysis")
+
+    if abs(max_drawdown) > 0.40:
+        st.error(f"High Risk: Max Drawdown is {max_drawdown:.2%}. Your portfolio lost more than 40% from its peak at some point.")
+    elif abs(max_drawdown) > 0.20:
+        st.warning(f"Moderate Risk: Max Drawdown is {max_drawdown:.2%}.")
+    else:
+        st.success(f"Low Risk: Max Drawdown is {max_drawdown:.2%}.")
+
+    if sharpe < 0:
+        st.error(f"Negative Sharpe Ratio: {sharpe:.2f}. Your portfolio is underperforming even a risk-free investment.")
+    elif sharpe < 1:
+        st.warning(f"Below Average Sharpe Ratio: {sharpe:.2f}. The return does not justify the risk taken.")
+    else:
+        st.success(f"Good Sharpe Ratio: {sharpe:.2f}. Your portfolio offers a solid return for the risk taken.")
+
+    if outperformance < 0:
+        st.warning(f"Underperforming S&P 500 by {abs(outperformance):.2%}. Consider reviewing your portfolio allocation.")
+    else:
+        st.success(f"Outperforming S&P 500 by {outperformance:.2%}. Your portfolio beats the market!")
+
 # ── Sidebar ────────────────────────────────────────────────────────────────────
 with st.sidebar:
     st.header("Portfolio Setup")
@@ -90,6 +113,9 @@ if analyze:
     col6.metric("Volatility", f"{volatility:.2%}")
     col7.metric("Sharpe Ratio", f"{sharpe:.2f}")
     col8.metric("Max Drawdown", f"{max_drawdown:.2%}")
+
+    # ── Risk Warnings ──────────────────────────────────────────────────────────
+    show_risk_warnings(max_drawdown, sharpe, outperformance)
 
     # ── Markowitz Optimization ─────────────────────────────────────────────────
     if len(tickers) > 1:
