@@ -31,6 +31,27 @@ class Visualizer:
 
         return fig
 
+    def plot_individual_stocks(self, individual_values):
+        fig = go.Figure()
+
+        for ticker in individual_values.columns:
+            fig.add_trace(go.Scatter(
+                x=individual_values.index,
+                y=individual_values[ticker],
+                mode="lines",
+                name=ticker,
+            ))
+
+        fig.update_layout(
+            title="Individual Stock Performance",
+            xaxis_title="Date",
+            yaxis_title="Value (€)",
+            hovermode="x unified",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        )
+
+        return fig
+
     def plot_correlation(self, corr_matrix):
         tickers = list(corr_matrix.columns)
         values = corr_matrix.values.tolist()

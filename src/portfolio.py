@@ -94,6 +94,15 @@ class Portfolio:
     def calculate_max_drawdown(self, portfolio_value):
         return self.metrics.max_drawdown(portfolio_value)
 
+    def calculate_individual_values(self, initial_investment):
+        individual_values = pd.DataFrame()
+
+        for stock, weight in zip(self.stocks, self.weights):
+            cumulative_growth = (1 + stock.returns).cumprod()
+            individual_values[stock.ticker] = cumulative_growth * (initial_investment * weight)
+
+        return individual_values
+
     def calculate_correlation(self):
         returns_df = pd.DataFrame({stock.ticker: stock.returns for stock in self.stocks})
         return returns_df.corr()

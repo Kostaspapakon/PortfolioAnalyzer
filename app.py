@@ -114,6 +114,13 @@ if analyze:
     col7.metric("Sharpe Ratio", f"{sharpe:.2f}")
     col8.metric("Max Drawdown", f"{max_drawdown:.2%}")
 
+    # ── Individual Stock Performance ───────────────────────────────────────────
+    if len(tickers) > 1:
+        st.subheader("Individual Stock Performance")
+        individual_values = portfolio.calculate_individual_values(initial_investment)
+        individual_fig = visualizer.plot_individual_stocks(individual_values)
+        st.plotly_chart(individual_fig, use_container_width=True)
+
     # ── Risk Warnings ──────────────────────────────────────────────────────────
     show_risk_warnings(max_drawdown, sharpe, outperformance)
 
