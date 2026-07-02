@@ -5,6 +5,7 @@ from datetime import date, timedelta
 from src.stock import Stock
 from src.portfolio import Portfolio
 from src.visualizer import Visualizer
+from src.database import Database
 
 st.set_page_config(page_title="Portfolio Analyzer", layout="wide")
 st.title("Portfolio Analyzer")
@@ -36,8 +37,16 @@ def show_risk_warnings(max_drawdown, sharpe, outperformance):
 with st.sidebar:
     st.header("Portfolio Setup")
 
-    tickers_input = st.text_input("Stock Tickers (comma-separated)", value="AAPL, NVDA")
-    weights_input = st.text_input("Weights (comma-separated, must sum to 1)", value="0.5, 0.5")
+    db = Database()
+    all_stocks = db.get_all_stocks()
+    db.close()
+
+    stock_options = [f"{name} ({ticker})" for ticker, name, sector in all_stocks]
+
+    selected = st.multiselect("Search & Select Stocks", options=stock_options, default=["Apple (AAPL)", "NVIDIA (NVDA)"])
+    tickers = [s.split("(")[-1].rstrip(")") for s in selected]
+
+    weights_input = st.text_input("Weights (comma-separated, must sum to 1)", value=", ".join([f"{1/len(tickers):.2f}" for _ in tickers]) if tickers else "")
     initial_investment = st.number_input("Initial Investment (€)", min_value=1.0, value=10000.0, step=100.0)
 
     st.divider()
@@ -62,7 +71,10 @@ with st.sidebar:
 if analyze:
     # Parse and validate inputs
     try:
-        tickers = [t.strip().upper() for t in tickers_input.split(",")]
+        if not tickers:
+            st.error("Please select at least one stock.")
+            st.stop()
+
         weights = [float(w.strip()) for w in weights_input.split(",")]
 
         if len(tickers) != len(weights):
