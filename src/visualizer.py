@@ -31,6 +31,21 @@ class Visualizer:
 
         return fig
 
+    def plot_sector_allocation(self, sector_weights):
+        fig = go.Figure(go.Pie(
+            labels=list(sector_weights.keys()),
+            values=list(sector_weights.values()),
+            hole=0.4,
+            textinfo="label+percent",
+        ))
+
+        fig.update_layout(
+            title="Sector Allocation",
+            legend=dict(orientation="h", yanchor="bottom", y=-0.2, xanchor="center", x=0.5),
+        )
+
+        return fig
+
     def plot_individual_stocks(self, individual_values):
         fig = go.Figure()
 

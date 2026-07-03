@@ -126,6 +126,20 @@ if analyze:
     col7.metric("Sharpe Ratio", f"{sharpe:.2f}")
     col8.metric("Max Drawdown", f"{max_drawdown:.2%}")
 
+    # ── Sector Allocation ──────────────────────────────────────────────────────
+    db = Database()
+    sector_map = db.get_sectors(tickers)
+    db.close()
+
+    sector_weights = {}
+    for ticker, weight in zip(tickers, weights):
+        sector = sector_map.get(ticker, "Other")
+        sector_weights[sector] = sector_weights.get(sector, 0) + weight
+
+    sector_fig = visualizer.plot_sector_allocation(sector_weights)
+    st.subheader("Sector Allocation")
+    st.plotly_chart(sector_fig, use_container_width=True)
+
     # ── Individual Stock Performance ───────────────────────────────────────────
     if len(tickers) > 1:
         st.subheader("Individual Stock Performance")

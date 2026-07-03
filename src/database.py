@@ -37,5 +37,13 @@ class Database:
         )
         return cursor.fetchall()
 
+    def get_sectors(self, tickers):
+        placeholders = ",".join("?" * len(tickers))
+        cursor = self.conn.execute(
+            f"SELECT ticker, sector FROM stocks WHERE ticker IN ({placeholders})",
+            tickers
+        )
+        return dict(cursor.fetchall())
+
     def close(self):
         self.conn.close()
