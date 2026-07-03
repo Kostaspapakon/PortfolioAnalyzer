@@ -105,6 +105,7 @@ if analyze:
         outperformance = portfolio.calculate_outperformance(portfolio_return, benchmark_return)
         sharpe = portfolio.calculate_sharpe_ratio()
         max_drawdown = portfolio.calculate_max_drawdown(portfolio_value)
+        beta = portfolio.calculate_beta(benchmark)
 
     # ── Chart ──────────────────────────────────────────────────────────────────
     visualizer = Visualizer()
@@ -120,11 +121,12 @@ if analyze:
     col3.metric("Portfolio Return", f"{portfolio_return:.2%}")
     col4.metric("Benchmark Return", f"{benchmark_return:.2%}")
 
-    col5, col6, col7, col8 = st.columns(4)
+    col5, col6, col7, col8, col9 = st.columns(5)
     col5.metric("Outperformance", f"{outperformance:.2%}")
     col6.metric("Volatility", f"{volatility:.2%}")
     col7.metric("Sharpe Ratio", f"{sharpe:.2f}")
     col8.metric("Max Drawdown", f"{max_drawdown:.2%}")
+    col9.metric("Beta", f"{beta:.2f}")
 
     # ── Sector Allocation ──────────────────────────────────────────────────────
     db = Database()

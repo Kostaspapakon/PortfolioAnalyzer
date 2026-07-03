@@ -140,7 +140,12 @@ class Portfolio:
         )
 
         return dict(zip([stock.ticker for stock in self.stocks], result.x))
-
+  
+    def calculate_beta(self, benchmark):
+        cov = np.cov(self.portfolio_returns, benchmark.returns)[0][1]
+        var = np.var(benchmark.returns)
+        return cov / var
+    
     def calculate_efficient_frontier(self, num_portfolios=5000):
         returns_df = pd.DataFrame({stock.ticker: stock.returns for stock in self.stocks})
         n = len(self.stocks)
