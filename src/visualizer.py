@@ -31,6 +31,31 @@ class Visualizer:
 
         return fig
 
+    def plot_annual_returns(self, annual_returns):
+        years = [str(d.year) for d in annual_returns.index]
+        values = annual_returns.values
+        colors = ["#4CAF50" if v >= 0 else "#F44336" for v in values]
+
+        fig = go.Figure(go.Bar(
+            x=years,
+            y=values,
+            marker_color=colors,
+            text=[f"{v:.1%}" for v in values],
+            textposition="outside",
+        ))
+
+        fig.update_layout(
+            title="Annual Returns",
+            xaxis_title="Year",
+            yaxis_title="Return",
+            yaxis_tickformat=".0%",
+            showlegend=False,
+        )
+
+        fig.add_hline(y=0, line_color="white", line_width=1)
+
+        return fig
+
     def plot_sector_allocation(self, sector_weights):
         fig = go.Figure(go.Pie(
             labels=list(sector_weights.keys()),

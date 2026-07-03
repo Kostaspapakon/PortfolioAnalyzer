@@ -158,6 +158,12 @@ if analyze:
         individual_fig = visualizer.plot_individual_stocks(individual_values)
         st.plotly_chart(individual_fig, use_container_width=True)
 
+    # ── Annual Returns ─────────────────────────────────────────────────────────
+    st.subheader("Annual Returns")
+    annual_returns = portfolio.calculate_annual_returns()
+    annual_fig = visualizer.plot_annual_returns(annual_returns)
+    st.plotly_chart(annual_fig, use_container_width=True)
+
     # ── Risk Warnings ──────────────────────────────────────────────────────────
     show_risk_warnings(max_drawdown, sharpe, outperformance, beta)
 

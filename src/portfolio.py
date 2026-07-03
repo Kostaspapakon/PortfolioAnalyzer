@@ -88,6 +88,9 @@ class Portfolio:
     def calculate_outperformance(self, portfolio_return, benchmark_return):
         return portfolio_return - benchmark_return
 
+    def calculate_annual_returns(self):
+        return self.portfolio_returns.resample("YE").apply(lambda r: (1 + r).prod() - 1)
+    
     def calculate_sharpe_ratio(self):
         return self.metrics.sharpe_ratio(self.portfolio_returns)
 
