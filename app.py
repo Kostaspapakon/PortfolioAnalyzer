@@ -11,7 +11,7 @@ st.set_page_config(page_title="Portfolio Analyzer", layout="wide")
 st.title("Portfolio Analyzer")
 
 
-def show_risk_warnings(max_drawdown, sharpe, outperformance):
+def show_risk_warnings(max_drawdown, sharpe, outperformance, beta):
     st.subheader("Risk Analysis")
 
     if abs(max_drawdown) > 0.40:
@@ -32,6 +32,15 @@ def show_risk_warnings(max_drawdown, sharpe, outperformance):
         st.warning(f"Underperforming S&P 500 by {abs(outperformance):.2%}. Consider reviewing your portfolio allocation.")
     else:
         st.success(f"Outperforming S&P 500 by {outperformance:.2%}. Your portfolio beats the market!")
+
+    if beta > 1.5:
+        st.error(f"High Beta: {beta:.2f}. Your portfolio is significantly more volatile than the market.")
+    elif beta > 1.0:
+        st.warning(f"Aggressive Beta: {beta:.2f}. Your portfolio moves more than the market.")
+    elif beta > 0.5:
+        st.success(f"Defensive Beta: {beta:.2f}. Your portfolio is less volatile than the market.")
+    else:
+        st.info(f"Low Beta: {beta:.2f}. Your portfolio moves very little relative to the market.")
 
 # ── Sidebar ────────────────────────────────────────────────────────────────────
 with st.sidebar:
@@ -150,7 +159,7 @@ if analyze:
         st.plotly_chart(individual_fig, use_container_width=True)
 
     # ── Risk Warnings ──────────────────────────────────────────────────────────
-    show_risk_warnings(max_drawdown, sharpe, outperformance)
+    show_risk_warnings(max_drawdown, sharpe, outperformance, beta)
 
     # ── Markowitz Optimization ─────────────────────────────────────────────────
     if len(tickers) > 1:
