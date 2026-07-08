@@ -31,6 +31,31 @@ class Visualizer:
 
         return fig
 
+    def plot_asset_assessment(self, scores: dict):
+        categories = list(scores.keys())
+        values = list(scores.values())
+        values += values[:1]
+        categories_closed = categories + [categories[0]]
+
+        fig = go.Figure(go.Scatterpolar(
+            r=values,
+            theta=categories_closed,
+            fill="toself",
+            fillcolor="rgba(33, 150, 243, 0.2)",
+            line=dict(color="#2196F3", width=2),
+            name="Score",
+        ))
+
+        fig.update_layout(
+            polar=dict(
+                radialaxis=dict(visible=True, range=[0, 10], tickfont=dict(size=10)),
+            ),
+            title="Asset Assessment (0–10)",
+            showlegend=False,
+        )
+
+        return fig
+
     def plot_annual_returns(self, annual_returns):
         years = [str(d.year) for d in annual_returns.index]
         values = annual_returns.values
