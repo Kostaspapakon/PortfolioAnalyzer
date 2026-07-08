@@ -58,6 +58,64 @@ def score_fundamentals(fa: FundamentalAnalysis) -> tuple[dict, list]:
     return scores, checklist
 
 
+def generate_summary(scores: dict, checklist: list) -> tuple[str, str]:
+    if not scores:
+        return "Not enough data to generate a summary.", "info"
+
+    avg_score = sum(scores.values()) / len(scores)
+    passed = sum(1 for item in checklist if item["passed"])
+    total = len(checklist)
+
+    if avg_score >= 7.5:
+        verdict = "This stock shows strong financial fundamentals and appears to be a relatively safe investment."
+        level = "success"
+    elif avg_score >= 5.5:
+        verdict = "This stock has moderate fundamentals with a mix of strengths and weaknesses."
+        level = "info"
+    elif avg_score >= 3.5:
+        verdict = "This stock shows some financial weaknesses and carries elevated risk."
+        level = "warning"
+    else:
+        verdict = "This stock has significant financial red flags and should be approached with caution."
+        level = "error"
+
+    parts = [verdict]
+
+    strengths = [label for label, score in scores.items() if score >= 7]
+    weaknesses = [label for label, score in scores.items() if score < 4]
+
+    if strengths:
+        parts.append(f"Key strengths: {', '.join(strengths)}.")
+    if weaknesses:
+        parts.append(f"Areas of concern: {', '.join(weaknesses)}.")
+
+    rg = scores.get("Revenue Growth", 0)
+    pm = scores.get("Profit Margin", 0)
+    if rg >= 6 and pm >= 6:
+        parts.append("The company demonstrates solid growth potential with healthy revenue and margins.")
+    elif rg >= 6:
+        parts.append("Revenue growth is positive, though profitability could be improved.")
+    elif pm >= 6:
+        parts.append("Profitability is solid, but revenue growth appears limited.")
+
+    pe = scores.get("P/E Ratio", 5)
+    pb = scores.get("P/B Ratio", 5)
+    if pe >= 7 and pb >= 7:
+        parts.append("The stock appears fairly valued or undervalued based on P/E and P/B ratios.")
+    elif pe < 4 or pb < 4:
+        parts.append("The valuation appears stretched — investors are paying a premium for this stock.")
+
+    fcf = scores.get("Free Cash Flow", 5)
+    if fcf >= 8:
+        parts.append("Strong free cash flow generation supports future investments and shareholder returns.")
+    elif fcf <= 2:
+        parts.append("Negative free cash flow raises concerns about the company's ability to self-fund growth.")
+
+    parts.append(f"Overall: {passed}/{total} health checks passed (average score {avg_score:.1f}/10).")
+
+    return " ".join(parts), level
+
+
 def show_risk_warnings(max_drawdown, sharpe, outperformance, beta):
     st.subheader("Risk Analysis")
 
@@ -347,3 +405,15 @@ with tab_stock:
             for item in checklist:
                 icon = "✅" if item["passed"] else "❌"
                 st.markdown(f"{icon} **{item['description']}** — {item['value']}")
+
+        st.divider()
+        summary_text, summary_level = generate_summary(scores, checklist)
+        st.subheader("Summary")
+        if summary_level == "success":
+            st.success(summary_text)
+        elif summary_level == "warning":
+            st.warning(summary_text)
+        elif summary_level == "error":
+            st.error(summary_text)
+        else:
+            st.info(summary_text)
