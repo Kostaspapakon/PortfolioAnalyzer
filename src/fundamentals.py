@@ -49,3 +49,12 @@ class FundamentalAnalysis:
     def eps(self):
         return self._info.get("trailingEps")
     
+    def pe_ratio(self):
+        return self._info.get("trailingPE")
+    
+    def pb_ratio(self):
+        return self._info.get("priceToBook")
+
+    def free_cash_flow(self):
+        return self._get(self._cashflow, "Free Cash Flow")
+    
