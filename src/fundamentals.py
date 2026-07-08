@@ -21,3 +21,10 @@ class FundamentalAnalysis:
         if assets and liabilities:
             return assets / liabilities
         return None
+
+    def dept_to_equity(self):
+        total_debt = self._get(self._balance_sheet, "Total Debt")
+        equity = self._get(self._balance_sheet, "Stockholders Equity")
+        if total_debt and equity:
+            return total_debt / equity
+        return None
