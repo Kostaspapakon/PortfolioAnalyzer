@@ -22,9 +22,30 @@ class FundamentalAnalysis:
             return assets / liabilities
         return None
 
-    def dept_to_equity(self):
+    def debt_to_equity(self):
         total_debt = self._get(self._balance_sheet, "Total Debt")
         equity = self._get(self._balance_sheet, "Stockholders Equity")
         if total_debt and equity:
             return total_debt / equity
         return None
+    
+    def profit_margin(self):
+        net_income = self._get(self._financials, "Net Income")
+        revenue = self._get(self._financials, "Total Revenue")
+        if net_income and revenue:
+            return net_income / revenue
+        return None
+  
+    def revenue_growth(self):
+        try:
+            revenue_now = self._get(self._financials, "Total Revenue")
+            revenue_prev = float(self._financials.loc["Total Revenue"].iloc[1])
+            if revenue_now and revenue_prev:
+                return (revenue_now - revenue_prev) / revenue_prev
+        except (KeyError, IndexError, TypeError):
+            return None
+        return None
+    
+    def eps(self):
+        return self._info.get("trailingEps")
+    
