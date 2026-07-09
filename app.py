@@ -234,8 +234,71 @@ with tab_portfolio:
             max_drawdown = portfolio.calculate_max_drawdown(portfolio_value)
             beta = portfolio.calculate_beta(benchmark)
 
-        # ── Chart ──────────────────────────────────────────────────────────────
+            db_s = Database()
+            sector_map = db_s.get_sectors(tickers)
+            db_s.close()
+            sector_weights = {}
+            for t, w in zip(tickers, weights):
+                sector = sector_map.get(t, "Other")
+                sector_weights[sector] = sector_weights.get(sector, 0) + w
+
+            individual_values = portfolio.calculate_individual_values(initial_investment) if len(tickers) > 1 else None
+            annual_returns = portfolio.calculate_annual_returns()
+            optimal_weights = portfolio.optimize_portfolio() if len(tickers) > 1 else None
+            simulation_df = portfolio.simulate_monte_carlo(initial_investment)
+            frontier_df = portfolio.calculate_efficient_frontier() if len(tickers) > 1 else None
+            corr_matrix = portfolio.calculate_correlation() if len(tickers) > 1 else None
+
+        st.session_state["res"] = {
+            "portfolio": portfolio,
+            "portfolio_value": portfolio_value,
+            "benchmark_value": benchmark_value,
+            "portfolio_return": portfolio_return,
+            "benchmark_return": benchmark_return,
+            "outperformance": outperformance,
+            "sharpe": sharpe,
+            "max_drawdown": max_drawdown,
+            "beta": beta,
+            "volatility": volatility,
+            "tickers": tickers,
+            "weights": weights,
+            "initial_investment": initial_investment,
+            "sector_weights": sector_weights,
+            "individual_values": individual_values,
+            "annual_returns": annual_returns,
+            "optimal_weights": optimal_weights,
+            "simulation_df": simulation_df,
+            "frontier_df": frontier_df,
+            "corr_matrix": corr_matrix,
+        }
+        st.session_state.pop("dca_res", None)
+
+    if "res" in st.session_state:
+        r = st.session_state["res"]
+        portfolio = r["portfolio"]
+        portfolio_value = r["portfolio_value"]
+        benchmark_value = r["benchmark_value"]
+        portfolio_return = r["portfolio_return"]
+        benchmark_return = r["benchmark_return"]
+        outperformance = r["outperformance"]
+        sharpe = r["sharpe"]
+        max_drawdown = r["max_drawdown"]
+        beta = r["beta"]
+        volatility = r["volatility"]
+        tickers = r["tickers"]
+        weights = r["weights"]
+        initial_investment = r["initial_investment"]
+        sector_weights = r["sector_weights"]
+        individual_values = r["individual_values"]
+        annual_returns = r["annual_returns"]
+        optimal_weights = r["optimal_weights"]
+        simulation_df = r["simulation_df"]
+        frontier_df = r["frontier_df"]
+        corr_matrix = r["corr_matrix"]
+
         visualizer = Visualizer()
+
+        # ── Chart ──────────────────────────────────────────────────────────────
         fig = visualizer.plot_comparison(portfolio_value, benchmark_value)
         st.plotly_chart(fig, use_container_width=True)
 
@@ -256,29 +319,18 @@ with tab_portfolio:
         col9.metric("Beta", f"{beta:.2f}")
 
         # ── Sector Allocation ──────────────────────────────────────────────────
-        db = Database()
-        sector_map = db.get_sectors(tickers)
-        db.close()
-
-        sector_weights = {}
-        for ticker, weight in zip(tickers, weights):
-            sector = sector_map.get(ticker, "Other")
-            sector_weights[sector] = sector_weights.get(sector, 0) + weight
-
-        sector_fig = visualizer.plot_sector_allocation(sector_weights)
         st.subheader("Sector Allocation")
+        sector_fig = visualizer.plot_sector_allocation(sector_weights)
         st.plotly_chart(sector_fig, use_container_width=True)
 
         # ── Individual Stock Performance ───────────────────────────────────────
-        if len(tickers) > 1:
+        if individual_values is not None:
             st.subheader("Individual Stock Performance")
-            individual_values = portfolio.calculate_individual_values(initial_investment)
             individual_fig = visualizer.plot_individual_stocks(individual_values)
             st.plotly_chart(individual_fig, use_container_width=True)
 
         # ── Annual Returns ─────────────────────────────────────────────────────
         st.subheader("Annual Returns")
-        annual_returns = portfolio.calculate_annual_returns()
         annual_fig = visualizer.plot_annual_returns(annual_returns)
         st.plotly_chart(annual_fig, use_container_width=True)
 
@@ -286,11 +338,8 @@ with tab_portfolio:
         show_risk_warnings(max_drawdown, sharpe, outperformance, beta)
 
         # ── Markowitz Optimization ─────────────────────────────────────────────
-        if len(tickers) > 1:
+        if optimal_weights is not None:
             st.subheader("Markowitz Portfolio Optimization")
-            with st.spinner("Optimizing weights..."):
-                optimal_weights = portfolio.optimize_portfolio()
-
             opt_col1, opt_col2 = st.columns([1, 2])
             with opt_col1:
                 st.markdown("**Optimal Weights:**")
@@ -307,8 +356,6 @@ with tab_portfolio:
 
         # ── Monte Carlo Simulation ─────────────────────────────────────────────
         st.subheader("Monte Carlo Simulation")
-        with st.spinner("Running simulations..."):
-            simulation_df = portfolio.simulate_monte_carlo(initial_investment)
         monte_fig = visualizer.plot_monte_carlo(simulation_df, initial_investment)
         st.plotly_chart(monte_fig, use_container_width=True)
 
@@ -323,19 +370,50 @@ with tab_portfolio:
         mc_col3.metric("Worst Case (5th percentile)", f"€{worst_val:,.2f}", delta=format_delta(worst_val, initial_investment))
 
         # ── Efficient Frontier ─────────────────────────────────────────────────
-        if len(tickers) > 1:
+        if frontier_df is not None:
             st.subheader("Efficient Frontier")
-            with st.spinner("Simulating portfolios..."):
-                frontier_df = portfolio.calculate_efficient_frontier()
             frontier_fig = visualizer.plot_efficient_frontier(frontier_df, tickers)
             st.plotly_chart(frontier_fig, use_container_width=True)
 
         # ── Correlation Matrix ─────────────────────────────────────────────────
-        if len(tickers) > 1:
+        if corr_matrix is not None:
             st.subheader("Correlation Matrix")
-            corr_matrix = portfolio.calculate_correlation()
             corr_fig = visualizer.plot_correlation(corr_matrix)
             st.plotly_chart(corr_fig, use_container_width=True)
+
+        # ── DCA Simulator ─────────────────────────────────────────────────────
+        st.subheader("Dollar Cost Averaging Simulator")
+        st.caption("Compare investing a fixed amount every month vs. investing the total sum upfront.")
+
+        monthly_amount = st.number_input("Monthly Investment (€)", min_value=1.0, value=200.0, step=50.0)
+
+        if st.button("Simulate DCA", use_container_width=True):
+            dca_series, lump_sum_series, total_invested = portfolio.calculate_dca(monthly_amount)
+            st.session_state["dca_res"] = {
+                "dca_series": dca_series,
+                "lump_sum_series": lump_sum_series,
+                "total_invested": total_invested,
+            }
+
+        if "dca_res" in st.session_state:
+            dr = st.session_state["dca_res"]
+            dca_fig = visualizer.plot_dca(dr["dca_series"], dr["lump_sum_series"], dr["total_invested"])
+            st.plotly_chart(dca_fig, use_container_width=True)
+
+            dca_final = dr["dca_series"].iloc[-1]
+            ls_final = dr["lump_sum_series"].iloc[-1]
+            total_invested = dr["total_invested"]
+
+            dca_col1, dca_col2, dca_col3 = st.columns(3)
+            dca_col1.metric("Total Invested", f"€{total_invested:,.2f}")
+            dca_col2.metric("DCA Final Value", f"€{dca_final:,.2f}", delta=format_delta(dca_final, total_invested))
+            dca_col3.metric("Lump Sum Final Value", f"€{ls_final:,.2f}", delta=format_delta(ls_final, total_invested))
+
+            diff = abs(dca_final - ls_final)
+            if dca_final > ls_final:
+                st.success(f"DCA outperformed Lump Sum by €{diff:,.2f} over this period.")
+            else:
+                st.info(f"Lump Sum outperformed DCA by €{diff:,.2f} over this period.")
 
         # ── Download ───────────────────────────────────────────────────────────
         st.subheader("Export Results")

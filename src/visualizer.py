@@ -170,6 +170,34 @@ class Visualizer:
 
         return fig
 
+    def plot_dca(self, dca_series, lump_sum_series, total_invested):
+        fig = go.Figure()
+
+        fig.add_trace(go.Scatter(
+            x=dca_series.index, y=dca_series.values,
+            name="DCA Strategy", line=dict(color="#2196F3", width=2)
+        ))
+
+        fig.add_trace(go.Scatter(
+            x=lump_sum_series.index, y=lump_sum_series.values,
+            name="Lump Sum", line=dict(color="#FF9800", width=2)
+        ))
+
+        fig.add_hline(
+            y=total_invested, line_dash="dot", line_color="gray",
+            annotation_text=f"Total Invested (€{total_invested:,.0f})"
+        )
+
+        fig.update_layout(
+            title="DCA vs Lump Sum Strategy",
+            xaxis_title="Date",
+            yaxis_title="Value (€)",
+            hovermode="x unified",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        )
+
+        return fig
+
     def plot_efficient_frontier(self, frontier_df, tickers):
         best_idx = frontier_df["Sharpe"].idxmax()
         best = frontier_df.loc[best_idx]

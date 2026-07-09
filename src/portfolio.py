@@ -144,6 +144,21 @@ class Portfolio:
 
         return dict(zip([stock.ticker for stock in self.stocks], result.x))
   
+    def calculate_dca(self, monthly_amount):
+        monthly_returns = (1 + self.portfolio_returns).resample("ME").prod() - 1
+        total_invested = monthly_amount * len(monthly_returns)
+
+        value = 0
+        dca_values = []
+        for r in monthly_returns:
+            value = (value + monthly_amount) * (1 + r)
+            dca_values.append(value)
+
+        dca_series = pd.Series(dca_values, index=monthly_returns.index)
+        lump_sum_series = (1 + monthly_returns).cumprod() * total_invested
+
+        return dca_series, lump_sum_series, total_invested
+
     def calculate_beta(self, benchmark):
         cov = np.cov(self.portfolio_returns, benchmark.returns)[0][1]
         var = np.var(benchmark.returns)
