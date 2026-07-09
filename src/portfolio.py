@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import pandas as pd
+import yfinance as yf
 from scipy.optimize import minimize
 from src.stock import Stock
 from src.metrics import Metrics
@@ -144,6 +145,23 @@ class Portfolio:
 
         return dict(zip([stock.ticker for stock in self.stocks], result.x))
   
+    def calculate_dividend_income(self, initial_investment):
+        rows = []
+        for stock, weight in zip(self.stocks, self.weights):
+            info = yf.Ticker(stock.ticker).info
+            div_yield = info.get("dividendYield") or 0.0
+            allocated = initial_investment * weight
+            rows.append({
+                "Ticker": stock.ticker,
+                "Allocated (€)": allocated,
+                "Dividend Yield": div_yield,
+                "Annual Income (€)": allocated * div_yield,
+            })
+        df = pd.DataFrame(rows)
+        portfolio_yield = (df["Dividend Yield"] * df["Allocated (€)"]).sum() / initial_investment
+        total_income = df["Annual Income (€)"].sum()
+        return df, portfolio_yield, total_income
+
     def calculate_dca(self, monthly_amount):
         monthly_returns = (1 + self.portfolio_returns).resample("ME").prod() - 1
         total_invested = monthly_amount * len(monthly_returns)

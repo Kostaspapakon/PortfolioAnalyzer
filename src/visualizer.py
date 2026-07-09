@@ -170,6 +170,40 @@ class Visualizer:
 
         return fig
 
+    def plot_dividend_income(self, dividend_df):
+        fig = go.Figure(go.Bar(
+            x=dividend_df["Ticker"],
+            y=dividend_df["Annual Income (€)"],
+            marker_color="#4CAF50",
+            text=[f"€{v:.2f}" for v in dividend_df["Annual Income (€)"]],
+            textposition="outside",
+        ))
+        fig.update_layout(
+            title="Estimated Annual Dividend Income per Stock",
+            xaxis_title="Stock",
+            yaxis_title="Annual Income (€)",
+            showlegend=False,
+        )
+        return fig
+
+    def plot_dividend_history(self, dividends):
+        annual = dividends.resample("YE").sum()
+        years = [str(d.year) for d in annual.index]
+        fig = go.Figure(go.Bar(
+            x=years,
+            y=annual.values,
+            marker_color="#2196F3",
+            text=[f"${v:.4f}" for v in annual.values],
+            textposition="outside",
+        ))
+        fig.update_layout(
+            title="Annual Dividends per Share",
+            xaxis_title="Year",
+            yaxis_title="Dividend per Share ($)",
+            showlegend=False,
+        )
+        return fig
+
     def plot_dca(self, dca_series, lump_sum_series, total_invested):
         fig = go.Figure()
 

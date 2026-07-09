@@ -248,6 +248,7 @@ with tab_portfolio:
             simulation_df = portfolio.simulate_monte_carlo(initial_investment)
             frontier_df = portfolio.calculate_efficient_frontier() if len(tickers) > 1 else None
             corr_matrix = portfolio.calculate_correlation() if len(tickers) > 1 else None
+            dividend_df, portfolio_yield, total_income = portfolio.calculate_dividend_income(initial_investment)
 
         st.session_state["res"] = {
             "portfolio": portfolio,
@@ -270,6 +271,9 @@ with tab_portfolio:
             "simulation_df": simulation_df,
             "frontier_df": frontier_df,
             "corr_matrix": corr_matrix,
+            "dividend_df": dividend_df,
+            "portfolio_yield": portfolio_yield,
+            "total_income": total_income,
         }
         st.session_state.pop("dca_res", None)
 
@@ -295,6 +299,9 @@ with tab_portfolio:
         simulation_df = r["simulation_df"]
         frontier_df = r["frontier_df"]
         corr_matrix = r["corr_matrix"]
+        dividend_df = r["dividend_df"]
+        portfolio_yield = r["portfolio_yield"]
+        total_income = r["total_income"]
 
         visualizer = Visualizer()
 
@@ -322,6 +329,19 @@ with tab_portfolio:
         st.subheader("Sector Allocation")
         sector_fig = visualizer.plot_sector_allocation(sector_weights)
         st.plotly_chart(sector_fig, use_container_width=True)
+
+        # ── Dividend Analysis ──────────────────────────────────────────────────
+        st.subheader("Dividend Analysis")
+        div_col1, div_col2, div_col3 = st.columns(3)
+        div_col1.metric("Portfolio Dividend Yield", f"{portfolio_yield:.2%}")
+        div_col2.metric("Est. Annual Income", f"€{total_income:,.2f}")
+        div_col3.metric("Est. Monthly Income", f"€{total_income / 12:,.2f}")
+
+        if total_income > 0:
+            div_fig = visualizer.plot_dividend_income(dividend_df)
+            st.plotly_chart(div_fig, use_container_width=True)
+        else:
+            st.info("None of the selected stocks pay dividends.")
 
         # ── Individual Stock Performance ───────────────────────────────────────
         if individual_values is not None:
@@ -495,6 +515,23 @@ with tab_stock:
             st.error(summary_text)
         else:
             st.info(summary_text)
+
+        st.divider()
+        st.subheader("Dividend History")
+        dividends = fa.dividend_history()
+        if not dividends.empty:
+            div_hist_fig = visualizer_sa.plot_dividend_history(dividends)
+            st.plotly_chart(div_hist_fig, use_container_width=True)
+            info = fa._info
+            div_yield = info.get("dividendYield")
+            div_rate = info.get("dividendRate")
+            payout = info.get("payoutRatio")
+            dh_col1, dh_col2, dh_col3 = st.columns(3)
+            dh_col1.metric("Dividend Yield", f"{div_yield:.2%}" if div_yield else "N/A")
+            dh_col2.metric("Annual Dividend Rate", f"${div_rate:.2f}" if div_rate else "N/A")
+            dh_col3.metric("Payout Ratio", f"{payout:.2%}" if payout else "N/A")
+        else:
+            st.info("This stock does not pay dividends.")
 
         st.divider()
         st.subheader("Latest News")

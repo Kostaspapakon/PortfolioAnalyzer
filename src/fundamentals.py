@@ -60,6 +60,9 @@ class FundamentalAnalysis:
     def free_cash_flow(self):
         return self._get(self._cashflow, "Free Cash Flow")
 
+    def dividend_history(self):
+        return self._yf.dividends
+
     def get_news(self, n=6):
         try:
             articles = []
