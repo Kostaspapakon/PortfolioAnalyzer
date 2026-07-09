@@ -417,3 +417,14 @@ with tab_stock:
             st.error(summary_text)
         else:
             st.info(summary_text)
+
+        st.divider()
+        st.subheader("Latest News")
+        news = fa.get_news()
+        if news:
+            for article in news:
+                st.markdown(f"**[{article['title']}]({article['link']})**")
+                st.caption(f"{article['publisher']} · {article['date']}")
+                st.divider()
+        else:
+            st.info("No recent news found for this stock.")
