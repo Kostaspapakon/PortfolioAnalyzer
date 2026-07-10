@@ -192,7 +192,7 @@ with st.sidebar:
     analyze = st.button("Analyze", use_container_width=True)
 
 # ── Tabs ───────────────────────────────────────────────────────────────────────
-tab_portfolio, tab_stock = st.tabs(["Portfolio Analysis", "Stock Analysis"])
+tab_portfolio, tab_markowitz, tab_stock = st.tabs(["Portfolio Analysis", "Markowitz Optimization", "Stock Analysis"])
 
 # ── Portfolio Analysis Tab ─────────────────────────────────────────────────────
 with tab_portfolio:
@@ -244,7 +244,6 @@ with tab_portfolio:
 
             individual_values = portfolio.calculate_individual_values(initial_investment) if len(tickers) > 1 else None
             annual_returns = portfolio.calculate_annual_returns()
-            optimal_weights = portfolio.optimize_portfolio() if len(tickers) > 1 else None
             simulation_df = portfolio.simulate_monte_carlo(initial_investment)
             frontier_df = portfolio.calculate_efficient_frontier() if len(tickers) > 1 else None
             corr_matrix = portfolio.calculate_correlation() if len(tickers) > 1 else None
@@ -267,7 +266,6 @@ with tab_portfolio:
             "sector_weights": sector_weights,
             "individual_values": individual_values,
             "annual_returns": annual_returns,
-            "optimal_weights": optimal_weights,
             "simulation_df": simulation_df,
             "frontier_df": frontier_df,
             "corr_matrix": corr_matrix,
@@ -276,6 +274,7 @@ with tab_portfolio:
             "total_income": total_income,
         }
         st.session_state.pop("dca_res", None)
+        st.session_state.pop("markowitz_res", None)
 
     if "res" in st.session_state:
         r = st.session_state["res"]
@@ -295,7 +294,6 @@ with tab_portfolio:
         sector_weights = r["sector_weights"]
         individual_values = r["individual_values"]
         annual_returns = r["annual_returns"]
-        optimal_weights = r["optimal_weights"]
         simulation_df = r["simulation_df"]
         frontier_df = r["frontier_df"]
         corr_matrix = r["corr_matrix"]
@@ -356,23 +354,6 @@ with tab_portfolio:
 
         # ── Risk Warnings ──────────────────────────────────────────────────────
         show_risk_warnings(max_drawdown, sharpe, outperformance, beta)
-
-        # ── Markowitz Optimization ─────────────────────────────────────────────
-        if optimal_weights is not None:
-            st.subheader("Markowitz Portfolio Optimization")
-            opt_col1, opt_col2 = st.columns([1, 2])
-            with opt_col1:
-                st.markdown("**Optimal Weights:**")
-                for ticker, weight in optimal_weights.items():
-                    st.metric(ticker, f"{weight:.1%}")
-            with opt_col2:
-                opt_fig = go.Figure(go.Pie(
-                    labels=list(optimal_weights.keys()),
-                    values=list(optimal_weights.values()),
-                    hole=0.4,
-                ))
-                opt_fig.update_layout(title="Optimal Allocation", margin=dict(t=40, b=0, l=0, r=0))
-                st.plotly_chart(opt_fig, use_container_width=True)
 
         # ── Monte Carlo Simulation ─────────────────────────────────────────────
         st.subheader("Monte Carlo Simulation")
@@ -470,6 +451,62 @@ with tab_portfolio:
             mime="text/csv",
             use_container_width=True,
         )
+
+# ── Markowitz Optimization Tab ────────────────────────────────────────────────
+with tab_markowitz:
+    st.subheader("Markowitz Portfolio Optimization")
+
+    if "res" not in st.session_state:
+        st.info("Run a portfolio analysis first from the Portfolio Analysis tab.")
+    else:
+        r = st.session_state["res"]
+        portfolio = r["portfolio"]
+        tickers = r["tickers"]
+
+        if len(tickers) < 2:
+            st.warning("Markowitz optimization requires at least 2 stocks.")
+        else:
+            st.caption("Find the optimal allocation that maximizes the Sharpe Ratio given your constraints.")
+
+            mk_col1, mk_col2 = st.columns(2)
+            max_w_pct = mk_col1.slider("Max weight per stock (%)", min_value=10, max_value=100, value=100, step=5, format="%d%%")
+            min_w_pct = mk_col2.slider("Min weight per stock (%)", min_value=0, max_value=20, value=0, step=1, format="%d%%")
+
+            max_w = max_w_pct / 100
+            min_w = min_w_pct / 100
+            n = len(tickers)
+
+            feasible = (n * max_w >= 1.0) and (n * min_w <= 1.0)
+            if not feasible:
+                st.warning(
+                    f"Infeasible: {n} stocks × {max_w_pct}% max = {n * max_w_pct}% < 100%. "
+                    "Increase max weight or reduce min weight."
+                )
+
+            if st.button("Optimize", use_container_width=True, disabled=not feasible):
+                with st.spinner("Optimizing weights..."):
+                    try:
+                        optimal_weights = portfolio.optimize_portfolio(min_weight=min_w, max_weight=max_w)
+                        st.session_state["markowitz_res"] = optimal_weights
+                    except ValueError as e:
+                        st.error(str(e))
+
+            if "markowitz_res" in st.session_state:
+                optimal_weights = st.session_state["markowitz_res"]
+                st.divider()
+                opt_col1, opt_col2 = st.columns([1, 2])
+                with opt_col1:
+                    st.markdown("**Optimal Weights:**")
+                    for t, w in optimal_weights.items():
+                        st.metric(t, f"{w:.1%}")
+                with opt_col2:
+                    opt_fig = go.Figure(go.Pie(
+                        labels=list(optimal_weights.keys()),
+                        values=list(optimal_weights.values()),
+                        hole=0.4,
+                    ))
+                    opt_fig.update_layout(title="Optimal Allocation", margin=dict(t=40, b=0, l=0, r=0))
+                    st.plotly_chart(opt_fig, use_container_width=True)
 
 # ── Stock Analysis Tab ─────────────────────────────────────────────────────────
 with tab_stock:

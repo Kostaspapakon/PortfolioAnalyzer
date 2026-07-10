@@ -121,9 +121,14 @@ class Portfolio:
 
         return pd.DataFrame(paths * initial_investment)
 
-    def optimize_portfolio(self):
+    def optimize_portfolio(self, min_weight=0.0, max_weight=1.0):
         returns_df = pd.DataFrame({stock.ticker: stock.returns for stock in self.stocks})
         n = len(self.stocks)
+
+        if n * max_weight < 1.0:
+            raise ValueError(f"Infeasible: {n} stocks × {max_weight:.0%} max = {n * max_weight:.0%} < 100%")
+        if n * min_weight > 1.0:
+            raise ValueError(f"Infeasible: {n} stocks × {min_weight:.0%} min = {n * min_weight:.0%} > 100%")
 
         def negative_sharpe(weights):
             r = (returns_df * weights).sum(axis=1)
@@ -132,7 +137,7 @@ class Portfolio:
             return -(ret - self.metrics.risk_free_rate) / vol
 
         initial_weights = [1 / n for _ in range(n)]
-        bounds = [(0, 1) for _ in range(n)]
+        bounds = [(min_weight, max_weight) for _ in range(n)]
         constraints = {"type": "eq", "fun": lambda w: sum(w) - 1}
 
         result = minimize(
