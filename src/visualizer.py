@@ -170,6 +170,30 @@ class Visualizer:
 
         return fig
 
+    def plot_peer_comparison(self, all_scores: dict):
+        metrics = list(next(iter(all_scores.values())).keys())
+        tickers = list(all_scores.keys())
+        colors = ["#2196F3", "#FF9800", "#4CAF50", "#E91E63", "#9C27B0"]
+
+        fig = go.Figure()
+        for i, ticker in enumerate(tickers):
+            scores = all_scores[ticker]
+            fig.add_trace(go.Bar(
+                name=ticker,
+                x=metrics,
+                y=[scores.get(m, 0) for m in metrics],
+                marker_color=colors[i % len(colors)],
+            ))
+
+        fig.update_layout(
+            title="Peer Comparison — Financial Health Scores (0–10)",
+            xaxis_title="Metric",
+            yaxis=dict(title="Score", range=[0, 10]),
+            barmode="group",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        )
+        return fig
+
     def plot_dividend_income(self, dividend_df):
         fig = go.Figure(go.Bar(
             x=dividend_df["Ticker"],

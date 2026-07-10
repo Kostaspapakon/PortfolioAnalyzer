@@ -490,6 +490,30 @@ with tab_stock:
             fa = FundamentalAnalysis(stock_ticker)
             scores, checklist = score_fundamentals(fa)
 
+            db_peer = Database()
+            sector = db_peer.get_sector(stock_ticker)
+            peers = db_peer.get_stocks_by_sector(sector, stock_ticker, limit=3)
+            db_peer.close()
+
+        st.session_state["stock_res"] = {
+            "fa": fa,
+            "scores": scores,
+            "checklist": checklist,
+            "stock_ticker": stock_ticker,
+            "sector": sector,
+            "peers": peers,
+        }
+        st.session_state.pop("peer_res", None)
+
+    if "stock_res" in st.session_state:
+        sr = st.session_state["stock_res"]
+        fa = sr["fa"]
+        scores = sr["scores"]
+        checklist = sr["checklist"]
+        stock_ticker = sr["stock_ticker"]
+        sector = sr["sector"]
+        peers = sr["peers"]
+
         visualizer_sa = Visualizer()
 
         col_chart, col_check = st.columns([1, 1])
@@ -517,15 +541,66 @@ with tab_stock:
             st.info(summary_text)
 
         st.divider()
+        st.subheader("Peer Comparison")
+
+        if peers and sector:
+            st.caption(f"Sector: {sector} — comparing with {', '.join(t for t, _ in peers)}")
+
+            if st.button("Compare with Sector Peers", use_container_width=True):
+                with st.spinner("Loading peer data..."):
+                    all_scores = {stock_ticker: scores}
+                    peer_rows = []
+                    for peer_ticker, _ in peers:
+                        fa_peer = FundamentalAnalysis(peer_ticker)
+                        peer_scores, _ = score_fundamentals(fa_peer)
+                        all_scores[peer_ticker] = peer_scores
+                        peer_rows.append({
+                            "Ticker": peer_ticker,
+                            "P/E": fa_peer.pe_ratio(),
+                            "P/B": fa_peer.pb_ratio(),
+                            "Profit Margin": fa_peer.profit_margin(),
+                            "Debt/Equity": fa_peer.debt_to_equity(),
+                            "EPS": fa_peer.eps(),
+                        })
+                st.session_state["peer_res"] = {
+                    "all_scores": all_scores,
+                    "peer_rows": peer_rows,
+                }
+
+            if "peer_res" in st.session_state:
+                pr = st.session_state["peer_res"]
+                peer_fig = visualizer_sa.plot_peer_comparison(pr["all_scores"])
+                st.plotly_chart(peer_fig, use_container_width=True)
+
+                selected_row = {
+                    "Ticker": stock_ticker,
+                    "P/E": fa.pe_ratio(),
+                    "P/B": fa.pb_ratio(),
+                    "Profit Margin": fa.profit_margin(),
+                    "Debt/Equity": fa.debt_to_equity(),
+                    "EPS": fa.eps(),
+                }
+                table_df = pd.DataFrame([selected_row] + pr["peer_rows"]).set_index("Ticker")
+                table_df["Profit Margin"] = table_df["Profit Margin"].apply(
+                    lambda x: f"{x:.1%}" if x else "N/A"
+                )
+                for col in ["P/E", "P/B", "Debt/Equity", "EPS"]:
+                    table_df[col] = table_df[col].apply(
+                        lambda x: f"{x:.2f}" if x else "N/A"
+                    )
+                st.dataframe(table_df, use_container_width=True)
+        else:
+            st.info("No sector peers found in the database.")
+
+        st.divider()
         st.subheader("Dividend History")
         dividends = fa.dividend_history()
         if not dividends.empty:
             div_hist_fig = visualizer_sa.plot_dividend_history(dividends)
             st.plotly_chart(div_hist_fig, use_container_width=True)
-            info = fa._info
-            div_yield = info.get("dividendYield")
-            div_rate = info.get("dividendRate")
-            payout = info.get("payoutRatio")
+            div_yield = fa._info.get("dividendYield")
+            div_rate = fa._info.get("dividendRate")
+            payout = fa._info.get("payoutRatio")
             dh_col1, dh_col2, dh_col3 = st.columns(3)
             dh_col1.metric("Dividend Yield", f"{div_yield:.2%}" if div_yield else "N/A")
             dh_col2.metric("Annual Dividend Rate", f"${div_rate:.2f}" if div_rate else "N/A")

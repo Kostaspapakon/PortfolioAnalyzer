@@ -45,5 +45,17 @@ class Database:
         )
         return dict(cursor.fetchall())
 
+    def get_sector(self, ticker):
+        cursor = self.conn.execute("SELECT sector FROM stocks WHERE ticker = ?", (ticker,))
+        result = cursor.fetchone()
+        return result[0] if result else None
+
+    def get_stocks_by_sector(self, sector, exclude_ticker, limit=3):
+        cursor = self.conn.execute(
+            "SELECT ticker, name FROM stocks WHERE sector = ? AND ticker != ? LIMIT ?",
+            (sector, exclude_ticker, limit)
+        )
+        return cursor.fetchall()
+
     def close(self):
         self.conn.close()
