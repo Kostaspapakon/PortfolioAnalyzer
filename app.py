@@ -7,6 +7,7 @@ from src.portfolio import Portfolio
 from src.visualizer import Visualizer
 from src.database import Database
 from src.fundamentals import FundamentalAnalysis
+from src.technical import TechnicalAnalysis
 
 
 def score_fundamentals(fa: FundamentalAnalysis) -> tuple[dict, list]:
@@ -532,6 +533,14 @@ with tab_stock:
             peers = db_peer.get_stocks_by_sector(sector, stock_ticker, limit=3)
             db_peer.close()
 
+            prices = fa.get_price_history()
+            ta = TechnicalAnalysis(prices)
+            tech_signals = ta.signals()
+            sma50 = ta.sma(50)
+            sma200 = ta.sma(200)
+            bb_upper, _, bb_lower = ta.bollinger_bands()
+            rsi_series = ta.rsi()
+
         st.session_state["stock_res"] = {
             "fa": fa,
             "scores": scores,
@@ -539,6 +548,13 @@ with tab_stock:
             "stock_ticker": stock_ticker,
             "sector": sector,
             "peers": peers,
+            "prices": prices,
+            "tech_signals": tech_signals,
+            "sma50": sma50,
+            "sma200": sma200,
+            "bb_upper": bb_upper,
+            "bb_lower": bb_lower,
+            "rsi_series": rsi_series,
         }
         st.session_state.pop("peer_res", None)
 
@@ -550,6 +566,13 @@ with tab_stock:
         stock_ticker = sr["stock_ticker"]
         sector = sr["sector"]
         peers = sr["peers"]
+        prices = sr["prices"]
+        tech_signals = sr["tech_signals"]
+        sma50 = sr["sma50"]
+        sma200 = sr["sma200"]
+        bb_upper = sr["bb_upper"]
+        bb_lower = sr["bb_lower"]
+        rsi_series = sr["rsi_series"]
 
         visualizer_sa = Visualizer()
 
@@ -576,6 +599,25 @@ with tab_stock:
             st.error(summary_text)
         else:
             st.info(summary_text)
+
+        st.divider()
+        st.subheader("Technical Analysis")
+
+        sig_cols = st.columns(3)
+        for i, (label, value, description, signal_type) in enumerate(tech_signals):
+            col = sig_cols[i % 3]
+            if signal_type == "buy":
+                col.success(f"**{label}**: {value}  \n{description}")
+            elif signal_type == "sell":
+                col.error(f"**{label}**: {value}  \n{description}")
+            else:
+                col.info(f"**{label}**: {value}  \n{description}")
+
+        tech_fig = visualizer_sa.plot_technical(prices, sma50, sma200, bb_upper, bb_lower)
+        st.plotly_chart(tech_fig, use_container_width=True)
+
+        rsi_fig = visualizer_sa.plot_rsi(rsi_series)
+        st.plotly_chart(rsi_fig, use_container_width=True)
 
         st.divider()
         st.subheader("Peer Comparison")

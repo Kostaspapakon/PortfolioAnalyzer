@@ -170,6 +170,69 @@ class Visualizer:
 
         return fig
 
+    def plot_technical(self, prices, sma50, sma200, bb_upper, bb_lower):
+        fig = go.Figure()
+
+        valid = bb_upper.dropna()
+        valid_lower = bb_lower.reindex(valid.index)
+        dates = list(valid.index)
+        fig.add_trace(go.Scatter(
+            x=dates + dates[::-1],
+            y=list(valid) + list(valid_lower[::-1]),
+            fill="toself",
+            fillcolor="rgba(33, 150, 243, 0.1)",
+            line=dict(color="rgba(0,0,0,0)"),
+            name="Bollinger Bands",
+            hoverinfo="skip",
+        ))
+
+        fig.add_trace(go.Scatter(
+            x=prices.index, y=prices.values,
+            name="Price", line=dict(color="#2196F3", width=2)
+        ))
+        fig.add_trace(go.Scatter(
+            x=sma50.index, y=sma50.values,
+            name="SMA 50", line=dict(color="#FF9800", width=1.5, dash="dash")
+        ))
+        fig.add_trace(go.Scatter(
+            x=sma200.index, y=sma200.values,
+            name="SMA 200", line=dict(color="#F44336", width=1.5, dash="dash")
+        ))
+
+        fig.update_layout(
+            title="Price Chart with Technical Indicators",
+            xaxis_title="Date",
+            yaxis_title="Price ($)",
+            hovermode="x unified",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+        )
+        return fig
+
+    def plot_rsi(self, rsi):
+        fig = go.Figure()
+
+        fig.add_hrect(y0=70, y1=100, fillcolor="rgba(244, 67, 54, 0.15)", line_width=0)
+        fig.add_hrect(y0=0, y1=30, fillcolor="rgba(76, 175, 80, 0.15)", line_width=0)
+
+        fig.add_trace(go.Scatter(
+            x=rsi.index, y=rsi.values,
+            name="RSI", line=dict(color="#2196F3", width=2)
+        ))
+
+        fig.add_hline(y=70, line_dash="dash", line_color="#F44336", line_width=1,
+                      annotation_text="Overbought (70)", annotation_position="left")
+        fig.add_hline(y=30, line_dash="dash", line_color="#4CAF50", line_width=1,
+                      annotation_text="Oversold (30)", annotation_position="left")
+
+        fig.update_layout(
+            title="RSI (14)",
+            xaxis_title="Date",
+            yaxis=dict(title="RSI", range=[0, 100]),
+            hovermode="x unified",
+            showlegend=False,
+        )
+        return fig
+
     def plot_peer_comparison(self, all_scores: dict):
         metrics = list(next(iter(all_scores.values())).keys())
         tickers = list(all_scores.keys())
