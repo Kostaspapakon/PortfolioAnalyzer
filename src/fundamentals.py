@@ -63,7 +63,7 @@ class FundamentalAnalysis:
     def dividend_history(self):
         return self._yf.dividends
 
-    def get_price_history(self, period="2y"):
+    def get_price_history(self, period="1y"):
         hist = self._yf.history(period=period)
         return hist["Close"]
 

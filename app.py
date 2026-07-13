@@ -10,6 +10,69 @@ from src.fundamentals import FundamentalAnalysis
 from src.technical import TechnicalAnalysis
 
 
+def calculate_portfolio_score(sharpe, max_drawdown, outperformance, sector_weights):
+    if sharpe < 0:
+        sharpe_score = 0.0
+    elif sharpe < 0.5:
+        sharpe_score = 0.5
+    elif sharpe < 1.0:
+        sharpe_score = 1.0
+    elif sharpe < 1.5:
+        sharpe_score = 1.5
+    else:
+        sharpe_score = 2.0
+
+    dd = abs(max_drawdown)
+    if dd > 0.40:
+        dd_score = 0.0
+    elif dd > 0.25:
+        dd_score = 0.5
+    elif dd > 0.15:
+        dd_score = 1.0
+    else:
+        dd_score = 1.5
+
+    n_sectors = len(sector_weights)
+    if n_sectors == 1:
+        div_score = 0.0
+    elif n_sectors == 2:
+        div_score = 0.35
+    elif n_sectors == 3:
+        div_score = 0.65
+    else:
+        div_score = 1.0
+
+    if outperformance < -0.05:
+        out_score = 0.0
+    elif outperformance < 0:
+        out_score = 0.15
+    elif outperformance < 0.05:
+        out_score = 0.35
+    else:
+        out_score = 0.5
+
+    total = sharpe_score + dd_score + div_score + out_score
+    return total, sharpe_score, dd_score, div_score, out_score
+
+
+def portfolio_verdict(score):
+    if score >= 4.5:
+        return "Excellent Portfolio ✅", "success"
+    elif score >= 3.5:
+        return "Good Portfolio 👍", "success"
+    elif score >= 2.5:
+        return "Average Portfolio 📊", "info"
+    elif score >= 1.5:
+        return "Below Average ⚠️", "warning"
+    else:
+        return "Needs Improvement ❌", "error"
+
+
+def score_to_stars(score):
+    filled = round(score)
+    return "⭐" * filled + "☆" * (5 - filled)
+
+
 def score_fundamentals(fa: FundamentalAnalysis) -> tuple[dict, list]:
     scores = {}
     checklist = []
@@ -243,6 +306,10 @@ with tab_portfolio:
                 sector = sector_map.get(t, "Other")
                 sector_weights[sector] = sector_weights.get(sector, 0) + w
 
+            score_total, score_sharpe, score_dd, score_div, score_out = calculate_portfolio_score(
+                sharpe, max_drawdown, outperformance, sector_weights
+            )
+
             individual_values = portfolio.calculate_individual_values(initial_investment) if len(tickers) > 1 else None
             annual_returns = portfolio.calculate_annual_returns()
             simulation_df = portfolio.simulate_monte_carlo(initial_investment)
@@ -273,6 +340,11 @@ with tab_portfolio:
             "dividend_df": dividend_df,
             "portfolio_yield": portfolio_yield,
             "total_income": total_income,
+            "score_total": score_total,
+            "score_sharpe": score_sharpe,
+            "score_dd": score_dd,
+            "score_div": score_div,
+            "score_out": score_out,
         }
         st.session_state.pop("dca_res", None)
         st.session_state.pop("markowitz_res", None)
@@ -301,8 +373,38 @@ with tab_portfolio:
         dividend_df = r["dividend_df"]
         portfolio_yield = r["portfolio_yield"]
         total_income = r["total_income"]
+        score_total = r["score_total"]
+        score_sharpe = r["score_sharpe"]
+        score_dd = r["score_dd"]
+        score_div = r["score_div"]
+        score_out = r["score_out"]
 
         visualizer = Visualizer()
+
+        # ── Portfolio Score ────────────────────────────────────────────────────
+        verdict, verdict_level = portfolio_verdict(score_total)
+        stars = score_to_stars(score_total)
+
+        sc1, sc2, sc3 = st.columns([1, 1, 2])
+        sc1.metric("Portfolio Score", f"{score_total:.1f} / 5.0")
+        sc2.markdown(f"<h2 style='margin:0'>{stars}</h2>", unsafe_allow_html=True)
+        with sc3:
+            if verdict_level == "success":
+                st.success(verdict)
+            elif verdict_level == "warning":
+                st.warning(verdict)
+            elif verdict_level == "error":
+                st.error(verdict)
+            else:
+                st.info(verdict)
+
+        b1, b2, b3, b4 = st.columns(4)
+        b1.metric("Sharpe", f"{score_sharpe:.1f} / 2.0")
+        b2.metric("Risk (Drawdown)", f"{score_dd:.2f} / 1.5")
+        b3.metric("Diversification", f"{score_div:.2f} / 1.0")
+        b4.metric("vs S&P 500", f"{score_out:.2f} / 0.5")
+
+        st.divider()
 
         # ── Chart ──────────────────────────────────────────────────────────────
         fig = visualizer.plot_comparison(portfolio_value, benchmark_value)
