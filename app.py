@@ -73,6 +73,47 @@ def score_to_stars(score):
     return "⭐" * filled + "☆" * (5 - filled)
 
 
+def show_diversification_warnings(sector_weights, corr_matrix, tickers, weights):
+    warnings_found = False
+
+    max_sector = max(sector_weights, key=sector_weights.get)
+    max_sector_w = sector_weights[max_sector]
+    if max_sector_w > 0.60:
+        st.error(f"High sector concentration: {max_sector_w:.0%} of your portfolio is in **{max_sector}**. Consider spreading across more sectors.")
+        warnings_found = True
+    elif max_sector_w > 0.40:
+        st.warning(f"Moderate sector concentration: {max_sector_w:.0%} in **{max_sector}**.")
+        warnings_found = True
+
+    max_w = max(weights)
+    max_ticker = tickers[weights.index(max_w)]
+    if max_w > 0.50:
+        st.error(f"**{max_ticker}** represents {max_w:.0%} of your portfolio — very high single-stock risk.")
+        warnings_found = True
+    elif max_w > 0.35:
+        st.warning(f"**{max_ticker}** represents {max_w:.0%} of your portfolio.")
+        warnings_found = True
+
+    if corr_matrix is not None and len(tickers) > 1:
+        import numpy as np
+        vals = corr_matrix.values
+        upper = vals[np.triu_indices_from(vals, k=1)]
+        avg_corr = upper.mean()
+        if avg_corr > 0.80:
+            st.error(f"Very high average correlation ({avg_corr:.2f}) — your stocks move almost identically. Diversification benefit is minimal.")
+            warnings_found = True
+        elif avg_corr > 0.65:
+            st.warning(f"High average correlation ({avg_corr:.2f}) — your stocks tend to move together.")
+            warnings_found = True
+
+    if len(tickers) < 3:
+        st.warning(f"Only {len(tickers)} stock(s) in your portfolio. Consider adding more holdings for better diversification.")
+        warnings_found = True
+
+    if not warnings_found:
+        st.success("Your portfolio appears well diversified across sectors, stocks, and shows healthy correlation between holdings.")
+
+
 def score_fundamentals(fa: FundamentalAnalysis) -> tuple[dict, list]:
     scores = {}
     checklist = []
@@ -443,6 +484,10 @@ with tab_portfolio:
             st.plotly_chart(div_fig, use_container_width=True)
         else:
             st.info("None of the selected stocks pay dividends.")
+
+        # ── Diversification Analysis ───────────────────────────────────────────
+        st.subheader("Diversification Analysis")
+        show_diversification_warnings(sector_weights, corr_matrix, tickers, weights)
 
         # ── Individual Stock Performance ───────────────────────────────────────
         if individual_values is not None:
