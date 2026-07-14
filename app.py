@@ -8,6 +8,7 @@ from src.visualizer import Visualizer
 from src.database import Database
 from src.fundamentals import FundamentalAnalysis
 from src.technical import TechnicalAnalysis
+from src.report import generate_report
 
 
 def calculate_portfolio_score(sharpe, max_drawdown, outperformance, sector_weights):
@@ -389,6 +390,7 @@ with tab_portfolio:
         }
         st.session_state.pop("dca_res", None)
         st.session_state.pop("markowitz_res", None)
+        st.session_state.pop("pdf_bytes", None)
 
     if "res" in st.session_state:
         r = st.session_state["res"]
@@ -599,6 +601,21 @@ with tab_portfolio:
             mime="text/csv",
             use_container_width=True,
         )
+
+        st.divider()
+        if st.button("Generate PDF Report", use_container_width=True, type="primary"):
+            with st.spinner("Generating PDF report — this may take a few seconds..."):
+                report_data = {**r, "visualizer": visualizer}
+                st.session_state["pdf_bytes"] = generate_report(report_data)
+
+        if "pdf_bytes" in st.session_state:
+            st.download_button(
+                label="Download PDF Report",
+                data=st.session_state["pdf_bytes"],
+                file_name=f"portfolio_report_{date.today()}.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+            )
 
 # ── Markowitz Optimization Tab ────────────────────────────────────────────────
 with tab_markowitz:

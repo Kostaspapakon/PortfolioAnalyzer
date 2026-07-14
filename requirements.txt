@@ -5,3 +5,5 @@ yfinance
 streamlit
 plotly
 scipy
+fpdf2
+kaleido
