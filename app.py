@@ -267,6 +267,13 @@ def analyze_real_portfolio(transactions_df):
     value_series_list = []
     spy_series_list = []
 
+    # Download SPY once from the earliest purchase date
+    min_date = str(pd.to_datetime(transactions_df["Purchase Date"]).min().date())
+    _spy_raw = yf.download("SPY", start=min_date, progress=False, auto_adjust=True)
+    spy_all = _spy_raw["Close"].squeeze().dropna()
+    if hasattr(spy_all.index, "tz") and spy_all.index.tz is not None:
+        spy_all.index = spy_all.index.tz_convert(None)
+
     for _, row in transactions_df.iterrows():
         stock_str = str(row["Stock"])
         ticker = stock_str.split("(")[-1].rstrip(")").strip().upper()
@@ -289,10 +296,10 @@ def analyze_real_portfolio(transactions_df):
             val_series = close * shares
             val_series.name = f"{ticker}_{len(rows)}"
 
-            spy_data = yf.download("SPY", start=purchase_date, progress=False, auto_adjust=True)
-            spy_close = spy_data["Close"].squeeze().dropna()
-            if hasattr(spy_close.index, "tz") and spy_close.index.tz is not None:
-                spy_close.index = spy_close.index.tz_convert(None)
+            # Slice SPY from this transaction's purchase date
+            spy_close = spy_all[spy_all.index >= pd.Timestamp(purchase_date)]
+            if spy_close.empty:
+                spy_close = spy_all
             spy_shares = amount / float(spy_close.iloc[0])
             spy_val = spy_close * spy_shares
             spy_val.name = f"SPY_{len(rows)}"
