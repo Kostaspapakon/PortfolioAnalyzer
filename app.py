@@ -1,7 +1,9 @@
 import streamlit as st
 import pandas as pd
+import numpy as np
 import plotly.graph_objects as go
 from datetime import date, timedelta
+import yfinance as yf
 from src.stock import Stock
 from src.portfolio import Portfolio
 from src.visualizer import Visualizer
@@ -96,7 +98,6 @@ def show_diversification_warnings(sector_weights, corr_matrix, tickers, weights)
         warnings_found = True
 
     if corr_matrix is not None and len(tickers) > 1:
-        import numpy as np
         vals = corr_matrix.values
         upper = vals[np.triu_indices_from(vals, k=1)]
         avg_corr = upper.mean()
@@ -260,85 +261,196 @@ def format_delta(value, initial):
     return f"{sign}€{abs(diff):,.2f}"
 
 
+def analyze_real_portfolio(transactions_df):
+    rows = []
+    value_series_list = []
+    spy_series_list = []
+
+    for _, row in transactions_df.iterrows():
+        stock_str = str(row["Stock"])
+        ticker = stock_str.split("(")[-1].rstrip(")").strip().upper()
+        company = stock_str.split(" (")[0].strip()
+        purchase_date = str(row["Purchase Date"])
+        amount = float(row["Amount (EUR)"])
+
+        try:
+            data = yf.download(ticker, start=purchase_date, progress=False, auto_adjust=True)
+            if data.empty or len(data) < 2:
+                st.warning(f"No data for **{ticker}** from {purchase_date}. Skipping.")
+                continue
+
+            close = data["Close"].squeeze().dropna()
+            if hasattr(close.index, "tz") and close.index.tz is not None:
+                close.index = close.index.tz_convert(None)
+
+            price_at_buy = float(close.iloc[0])
+            shares = amount / price_at_buy
+            val_series = close * shares
+            val_series.name = f"{ticker}_{len(rows)}"
+
+            spy_data = yf.download("SPY", start=purchase_date, progress=False, auto_adjust=True)
+            spy_close = spy_data["Close"].squeeze().dropna()
+            if hasattr(spy_close.index, "tz") and spy_close.index.tz is not None:
+                spy_close.index = spy_close.index.tz_convert(None)
+            spy_shares = amount / float(spy_close.iloc[0])
+            spy_val = spy_close * spy_shares
+            spy_val.name = f"SPY_{len(rows)}"
+
+            current_val = float(val_series.iloc[-1])
+            profit = current_val - amount
+
+            rows.append({
+                "Company": company,
+                "Ticker": ticker,
+                "Purchase Date": purchase_date,
+                "Invested (EUR)": amount,
+                "Shares": round(shares, 4),
+                "Buy Price": round(price_at_buy, 2),
+                "Current Price": round(float(close.iloc[-1]), 2),
+                "Current Value (EUR)": round(current_val, 2),
+                "Profit / Loss (EUR)": round(profit, 2),
+                "Return": profit / amount,
+            })
+            value_series_list.append(val_series)
+            spy_series_list.append(spy_val)
+
+        except Exception as e:
+            st.warning(f"Error loading {ticker}: {e}")
+
+    if not rows:
+        return None, None, None, None
+
+    results_df = pd.DataFrame(rows)
+
+    portfolio_series = pd.concat(value_series_list, axis=1).ffill().fillna(0).sum(axis=1)
+    spy_series = pd.concat(spy_series_list, axis=1).ffill().fillna(0).sum(axis=1)
+
+    # Individual values per ticker (sum duplicate tickers)
+    ind_by_ticker = {}
+    for i, row_data in enumerate(rows):
+        t = row_data["Ticker"]
+        s = value_series_list[i]
+        if t in ind_by_ticker:
+            ind_by_ticker[t] = ind_by_ticker[t].add(s, fill_value=0)
+        else:
+            ind_by_ticker[t] = s.copy()
+
+    individual_values = (
+        pd.concat(ind_by_ticker, axis=1).ffill().fillna(0)
+        if len(ind_by_ticker) > 1 else None
+    )
+
+    return results_df, portfolio_series, spy_series, individual_values
+
+
+# ── App ────────────────────────────────────────────────────────────────────────
 st.set_page_config(page_title="Portfolio Analyzer", layout="wide")
+
+st.markdown("""
+<style>
+[data-testid="stMetricValue"] { font-size: 1.35rem; font-weight: 700; }
+[data-testid="stMetricLabel"] { font-size: 0.8rem; opacity: 0.7; }
+hr { border-color: rgba(128,128,128,0.15) !important; margin: 1.2rem 0 !important; }
+.stDataFrame { border-radius: 8px; overflow: hidden; }
+</style>
+""", unsafe_allow_html=True)
+
 st.title("Portfolio Analyzer")
 
 # ── Sidebar ────────────────────────────────────────────────────────────────────
 with st.sidebar:
-    st.header("Portfolio Setup")
+    st.header("My Portfolio")
+    st.caption("Add your real stock purchases below.")
 
     db = Database()
     all_stocks = db.get_all_stocks()
     db.close()
+    stock_display = sorted([f"{n} ({t})" for t, n, _ in all_stocks])
 
-    stock_options = [f"{name} ({ticker})" for ticker, name, _ in all_stocks]
+    default_tx = pd.DataFrame({
+        "Stock": ["Apple (AAPL)", "NVIDIA (NVDA)"],
+        "Purchase Date": [
+            date.today() - timedelta(days=365),
+            date.today() - timedelta(days=730),
+        ],
+        "Amount (EUR)": [1000.0, 500.0],
+    })
 
-    selected = st.multiselect("Search & Select Stocks", options=stock_options, default=["Apple (AAPL)", "NVIDIA (NVDA)"])
-    tickers = [s.split("(")[-1].rstrip(")") for s in selected]
+    transactions = st.data_editor(
+        default_tx,
+        num_rows="dynamic",
+        column_config={
+            "Stock": st.column_config.SelectboxColumn(
+                "Stock", options=stock_display, required=True
+            ),
+            "Purchase Date": st.column_config.DateColumn(
+                "Purchase Date", required=True
+            ),
+            "Amount (EUR)": st.column_config.NumberColumn(
+                "Amount (EUR)", min_value=1.0, step=100.0
+            ),
+        },
+        use_container_width=True,
+    )
 
-    weights_input = st.text_input("Weights (comma-separated, must sum to 1)", value=", ".join([f"{1/len(tickers):.2f}" for _ in tickers]) if tickers else "")
-    initial_investment = st.number_input("Initial Investment (€)", min_value=1.0, value=10000.0, step=100.0)
-
-    st.divider()
-    st.subheader("Date Range")
-
-    preset = st.radio("Period", ["1Y", "3Y", "5Y", "10Y", "Custom"], horizontal=True)
-
-    today = date.today()
-    presets = {"1Y": 365, "3Y": 3 * 365, "5Y": 5 * 365, "10Y": 10 * 365}
-
-    if preset != "Custom":
-        start_date = today - timedelta(days=presets[preset])
-        end_date = today
-        st.caption(f"From {start_date} to {end_date}")
-    else:
-        start_date = st.date_input("Start Date", value=date(2010, 1, 1))
-        end_date = st.date_input("End Date", value=today)
-
-    analyze = st.button("Analyze", use_container_width=True)
+    analyze = st.button("Analyze Portfolio", use_container_width=True)
 
 # ── Tabs ───────────────────────────────────────────────────────────────────────
-tab_portfolio, tab_markowitz, tab_stock = st.tabs(["Portfolio Analysis", "Markowitz Optimization", "Stock Analysis"])
+tab_portfolio, tab_markowitz, tab_stock = st.tabs(
+    ["Portfolio Analysis", "Markowitz Optimization", "Stock Analysis"]
+)
 
 # ── Portfolio Analysis Tab ─────────────────────────────────────────────────────
 with tab_portfolio:
     if analyze:
-        try:
-            if not tickers:
-                st.error("Please select at least one stock.")
-                st.stop()
+        valid_tx = transactions.dropna(subset=["Stock", "Purchase Date", "Amount (EUR)"])
+        valid_tx = valid_tx[valid_tx["Amount (EUR)"] > 0]
 
-            weights = [float(w.strip()) for w in weights_input.split(",")]
-
-            if len(tickers) != len(weights):
-                st.error("Number of tickers and weights must match.")
-                st.stop()
-
-            if abs(sum(weights) - 1.0) > 0.0001:
-                st.error(f"Weights must sum to 1.0 (currently {sum(weights):.4f}).")
-                st.stop()
-
-        except ValueError:
-            st.error("Invalid input. Make sure weights are numbers.")
+        if valid_tx.empty:
+            st.error("Please add at least one stock purchase.")
             st.stop()
 
-        with st.spinner("Downloading data and calculating..."):
-            stocks = [Stock(ticker) for ticker in tickers]
-            portfolio = Portfolio(stocks=stocks, weights=weights)
-            portfolio.validate_weights()
-            portfolio.load_all_data(start=start_date.strftime("%Y-%m-%d"), end=end_date.strftime("%Y-%m-%d"))
+        with st.spinner("Downloading market data and calculating..."):
+            results_df, portfolio_series, spy_series, individual_values = analyze_real_portfolio(valid_tx)
 
-            portfolio_returns = portfolio.calculate_portfolio_returns()
-            volatility = portfolio.calculate_volatility()
-            portfolio_value = portfolio.calculate_portfolio_value(initial_investment)
-            benchmark = portfolio.load_benchmark(start=start_date.strftime("%Y-%m-%d"), end=end_date.strftime("%Y-%m-%d"))
-            benchmark_value = portfolio.calculate_benchmark_value(benchmark, initial_investment)
-            portfolio_return = portfolio.calculate_total_return(portfolio_value, initial_investment)
-            benchmark_return = portfolio.calculate_benchmark_return(benchmark_value, initial_investment)
-            outperformance = portfolio.calculate_outperformance(portfolio_return, benchmark_return)
-            sharpe = portfolio.calculate_sharpe_ratio()
-            max_drawdown = portfolio.calculate_max_drawdown(portfolio_value)
-            beta = portfolio.calculate_beta(benchmark)
+            if results_df is None:
+                st.error("Could not load data for any of the specified stocks.")
+                st.stop()
+
+            total_invested = results_df["Invested (EUR)"].sum()
+            total_current = results_df["Current Value (EUR)"].sum()
+            portfolio_return = (total_current - total_invested) / total_invested
+            benchmark_return = (float(spy_series.iloc[-1]) - total_invested) / total_invested
+            outperformance = portfolio_return - benchmark_return
+
+            # Risk metrics from actual portfolio series
+            port_rets = portfolio_series.pct_change().dropna()
+            volatility = float(port_rets.std() * np.sqrt(252))
+            rf_daily = 0.05 / 252
+            excess = port_rets - rf_daily
+            sharpe = float((excess.mean() / excess.std()) * np.sqrt(252)) if excess.std() > 0 else 0.0
+            peak = portfolio_series.cummax()
+            max_drawdown = float(((portfolio_series - peak) / peak).min())
+
+            spy_rets = spy_series.pct_change().dropna()
+            p_aligned, s_aligned = port_rets.align(spy_rets, join="inner")
+            cov_matrix = np.cov(p_aligned, s_aligned)
+            beta = float(cov_matrix[0, 1] / cov_matrix[1, 1]) if cov_matrix[1, 1] > 0 else 1.0
+
+            annual_returns = portfolio_series.resample("YE").last().pct_change().dropna()
+
+            # Unique tickers with weights from invested amounts for Portfolio object
+            ticker_amounts = results_df.groupby("Ticker")["Invested (EUR)"].sum()
+            tickers = list(ticker_amounts.index)
+            weights = [float(ticker_amounts[t] / ticker_amounts.sum()) for t in tickers]
+            min_date = str(pd.to_datetime(valid_tx["Purchase Date"]).min().date())
+
+            stocks = [Stock(t) for t in tickers]
+            portfolio = Portfolio(stocks=stocks, weights=weights)
+            portfolio.load_all_data(
+                start=min_date, end=date.today().strftime("%Y-%m-%d")
+            )
+            portfolio.calculate_portfolio_returns()
 
             db_s = Database()
             sector_map = db_s.get_sectors(tickers)
@@ -352,17 +464,16 @@ with tab_portfolio:
                 sharpe, max_drawdown, outperformance, sector_weights
             )
 
-            individual_values = portfolio.calculate_individual_values(initial_investment) if len(tickers) > 1 else None
-            annual_returns = portfolio.calculate_annual_returns()
-            simulation_df = portfolio.simulate_monte_carlo(initial_investment)
+            simulation_df = portfolio.simulate_monte_carlo(total_invested)
             frontier_df = portfolio.calculate_efficient_frontier() if len(tickers) > 1 else None
             corr_matrix = portfolio.calculate_correlation() if len(tickers) > 1 else None
-            dividend_df, portfolio_yield, total_income = portfolio.calculate_dividend_income(initial_investment)
+            dividend_df, portfolio_yield, total_income = portfolio.calculate_dividend_income(total_invested)
 
         st.session_state["res"] = {
+            "results_df": results_df,
             "portfolio": portfolio,
-            "portfolio_value": portfolio_value,
-            "benchmark_value": benchmark_value,
+            "portfolio_value": portfolio_series,
+            "benchmark_value": spy_series,
             "portfolio_return": portfolio_return,
             "benchmark_return": benchmark_return,
             "outperformance": outperformance,
@@ -372,7 +483,7 @@ with tab_portfolio:
             "volatility": volatility,
             "tickers": tickers,
             "weights": weights,
-            "initial_investment": initial_investment,
+            "initial_investment": total_invested,
             "sector_weights": sector_weights,
             "individual_values": individual_values,
             "annual_returns": annual_returns,
@@ -394,6 +505,7 @@ with tab_portfolio:
 
     if "res" in st.session_state:
         r = st.session_state["res"]
+        results_df = r["results_df"]
         portfolio = r["portfolio"]
         portfolio_value = r["portfolio_value"]
         benchmark_value = r["benchmark_value"]
@@ -423,6 +535,32 @@ with tab_portfolio:
         score_out = r["score_out"]
 
         visualizer = Visualizer()
+
+        # ── Holdings Breakdown ─────────────────────────────────────────────────
+        st.subheader("Holdings")
+        display_df = results_df[["Company", "Ticker", "Purchase Date", "Invested (EUR)",
+                                  "Shares", "Buy Price", "Current Price",
+                                  "Current Value (EUR)", "Profit / Loss (EUR)", "Return"]].copy()
+        styled = (
+            display_df.style
+            .format({
+                "Invested (EUR)":       "€{:.2f}",
+                "Shares":               "{:.4f}",
+                "Buy Price":            "${:.2f}",
+                "Current Price":        "${:.2f}",
+                "Current Value (EUR)":  "€{:.2f}",
+                "Profit / Loss (EUR)":  lambda x: f"+€{x:.2f}" if x >= 0 else f"-€{abs(x):.2f}",
+                "Return":               "{:+.2%}",
+            })
+            .map(
+                lambda v: "color: #2ECC71; font-weight: 600" if isinstance(v, (int, float)) and v >= 0
+                          else ("color: #E74C3C; font-weight: 600" if isinstance(v, (int, float)) else ""),
+                subset=["Profit / Loss (EUR)", "Return"],
+            )
+        )
+        st.dataframe(styled, use_container_width=True, hide_index=True)
+
+        st.divider()
 
         # ── Portfolio Score ────────────────────────────────────────────────────
         verdict, verdict_level = portfolio_verdict(score_total)
@@ -457,10 +595,10 @@ with tab_portfolio:
         st.subheader("Portfolio Summary")
 
         col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Initial Investment", f"€{initial_investment:,.2f}")
-        col2.metric("Final Value", f"€{portfolio_value.iloc[-1]:,.2f}")
+        col1.metric("Total Invested", f"€{initial_investment:,.2f}")
+        col2.metric("Current Value", f"€{results_df['Current Value (EUR)'].sum():,.2f}")
         col3.metric("Portfolio Return", f"{portfolio_return:.2%}")
-        col4.metric("Benchmark Return", f"{benchmark_return:.2%}")
+        col4.metric("S&P 500 Return", f"{benchmark_return:.2%}")
 
         col5, col6, col7, col8, col9 = st.columns(5)
         col5.metric("Outperformance", f"{outperformance:.2%}")
@@ -539,11 +677,11 @@ with tab_portfolio:
         monthly_amount = st.number_input("Monthly Investment (€)", min_value=1.0, value=200.0, step=50.0)
 
         if st.button("Simulate DCA", use_container_width=True):
-            dca_series, lump_sum_series, total_invested = portfolio.calculate_dca(monthly_amount)
+            dca_series, lump_sum_series, total_invested_dca = portfolio.calculate_dca(monthly_amount)
             st.session_state["dca_res"] = {
                 "dca_series": dca_series,
                 "lump_sum_series": lump_sum_series,
-                "total_invested": total_invested,
+                "total_invested": total_invested_dca,
             }
 
         if "dca_res" in st.session_state:
@@ -553,12 +691,12 @@ with tab_portfolio:
 
             dca_final = dr["dca_series"].iloc[-1]
             ls_final = dr["lump_sum_series"].iloc[-1]
-            total_invested = dr["total_invested"]
+            total_invested_dca = dr["total_invested"]
 
             dca_col1, dca_col2, dca_col3 = st.columns(3)
-            dca_col1.metric("Total Invested", f"€{total_invested:,.2f}")
-            dca_col2.metric("DCA Final Value", f"€{dca_final:,.2f}", delta=format_delta(dca_final, total_invested))
-            dca_col3.metric("Lump Sum Final Value", f"€{ls_final:,.2f}", delta=format_delta(ls_final, total_invested))
+            dca_col1.metric("Total Invested", f"€{total_invested_dca:,.2f}")
+            dca_col2.metric("DCA Final Value", f"€{dca_final:,.2f}", delta=format_delta(dca_final, total_invested_dca))
+            dca_col3.metric("Lump Sum Final Value", f"€{ls_final:,.2f}", delta=format_delta(ls_final, total_invested_dca))
 
             diff = abs(dca_final - ls_final)
             if dca_final > ls_final:
@@ -566,19 +704,19 @@ with tab_portfolio:
             else:
                 st.info(f"Lump Sum outperformed DCA by €{diff:,.2f} over this period.")
 
-        # ── Download ───────────────────────────────────────────────────────────
+        # ── Export ─────────────────────────────────────────────────────────────
         st.subheader("Export Results")
 
         values_df = pd.DataFrame({
             "Portfolio Value (€)": portfolio_value,
-            "Benchmark Value (€)": benchmark_value,
+            "S&P 500 Equivalent (€)": benchmark_value,
         })
 
         summary = {
-            "Initial Investment (€)": initial_investment,
-            "Final Portfolio Value (€)": portfolio_value.iloc[-1],
+            "Total Invested (€)": initial_investment,
+            "Current Value (€)": results_df["Current Value (EUR)"].sum(),
             "Portfolio Return": f"{portfolio_return:.2%}",
-            "Benchmark Return": f"{benchmark_return:.2%}",
+            "S&P 500 Return": f"{benchmark_return:.2%}",
             "Outperformance": f"{outperformance:.2%}",
             "Volatility": f"{volatility:.2%}",
             "Sharpe Ratio": f"{sharpe:.2f}",
