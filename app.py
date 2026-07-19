@@ -11,6 +11,7 @@ from src.database import Database
 from src.fundamentals import FundamentalAnalysis
 from src.technical import TechnicalAnalysis
 from src.report import generate_report
+from src.etf import ETFAnalysis
 
 
 def calculate_portfolio_score(sharpe, max_drawdown, outperformance, sector_weights):
@@ -826,82 +827,238 @@ with tab_stock:
     if run_analysis and selected_stock:
         stock_ticker = selected_stock.split("(")[-1].rstrip(")")
 
-        with st.spinner(f"Loading fundamentals for {stock_ticker}..."):
-            fa = FundamentalAnalysis(stock_ticker)
-            scores, checklist = score_fundamentals(fa)
+        db_check = Database()
+        sector_check = db_check.get_sector(stock_ticker)
+        db_check.close()
+        is_etf = bool(sector_check and sector_check.startswith("ETF"))
 
-            db_peer = Database()
-            sector = db_peer.get_sector(stock_ticker)
-            peers = db_peer.get_stocks_by_sector(sector, stock_ticker, limit=3)
-            db_peer.close()
-
-            prices = fa.get_price_history()
-            ta = TechnicalAnalysis(prices)
-            tech_signals = ta.signals()
-            sma50 = ta.sma(50)
-            sma200 = ta.sma(200)
-            bb_upper, _, bb_lower = ta.bollinger_bands()
-            rsi_series = ta.rsi()
-
-        st.session_state["stock_res"] = {
-            "fa": fa,
-            "scores": scores,
-            "checklist": checklist,
-            "stock_ticker": stock_ticker,
-            "sector": sector,
-            "peers": peers,
-            "prices": prices,
-            "tech_signals": tech_signals,
-            "sma50": sma50,
-            "sma200": sma200,
-            "bb_upper": bb_upper,
-            "bb_lower": bb_lower,
-            "rsi_series": rsi_series,
-        }
+        with st.spinner(f"Loading data for {stock_ticker}..."):
+            if is_etf:
+                etf = ETFAnalysis(stock_ticker)
+                prices = etf.get_price_history()
+                ta = TechnicalAnalysis(prices)
+                st.session_state["stock_res"] = {
+                    "is_etf": True,
+                    "etf": etf,
+                    "stock_ticker": stock_ticker,
+                    "sector": sector_check,
+                    "prices": prices,
+                    "tech_signals": ta.signals(),
+                    "sma50": ta.sma(50),
+                    "sma200": ta.sma(200),
+                    "bb_upper": ta.bollinger_bands()[0],
+                    "bb_lower": ta.bollinger_bands()[2],
+                    "rsi_series": ta.rsi(),
+                }
+            else:
+                fa = FundamentalAnalysis(stock_ticker)
+                scores, checklist = score_fundamentals(fa)
+                db_peer = Database()
+                sector = db_peer.get_sector(stock_ticker)
+                peers = db_peer.get_stocks_by_sector(sector, stock_ticker, limit=3)
+                db_peer.close()
+                prices = fa.get_price_history()
+                ta = TechnicalAnalysis(prices)
+                st.session_state["stock_res"] = {
+                    "is_etf": False,
+                    "fa": fa,
+                    "scores": scores,
+                    "checklist": checklist,
+                    "stock_ticker": stock_ticker,
+                    "sector": sector,
+                    "peers": peers,
+                    "prices": prices,
+                    "tech_signals": ta.signals(),
+                    "sma50": ta.sma(50),
+                    "sma200": ta.sma(200),
+                    "bb_upper": ta.bollinger_bands()[0],
+                    "bb_lower": ta.bollinger_bands()[2],
+                    "rsi_series": ta.rsi(),
+                }
         st.session_state.pop("peer_res", None)
 
     if "stock_res" in st.session_state:
         sr = st.session_state["stock_res"]
-        fa = sr["fa"]
-        scores = sr["scores"]
-        checklist = sr["checklist"]
         stock_ticker = sr["stock_ticker"]
-        sector = sr["sector"]
-        peers = sr["peers"]
-        prices = sr["prices"]
+        prices      = sr["prices"]
         tech_signals = sr["tech_signals"]
-        sma50 = sr["sma50"]
-        sma200 = sr["sma200"]
-        bb_upper = sr["bb_upper"]
-        bb_lower = sr["bb_lower"]
-        rsi_series = sr["rsi_series"]
+        sma50       = sr["sma50"]
+        sma200      = sr["sma200"]
+        bb_upper    = sr["bb_upper"]
+        bb_lower    = sr["bb_lower"]
+        rsi_series  = sr["rsi_series"]
 
         visualizer_sa = Visualizer()
 
-        col_chart, col_check = st.columns([1, 1])
+        # ── ETF Analysis ───────────────────────────────────────────────────────
+        if sr["is_etf"]:
+            etf = sr["etf"]
+            st.subheader(etf.fund_name())
+            st.caption(f"{etf.fund_family()}  ·  {etf.category()}  ·  {sr['sector']}")
 
-        with col_chart:
-            radar_fig = visualizer_sa.plot_asset_assessment(scores)
-            st.plotly_chart(radar_fig, use_container_width=True)
+            # Key metrics
+            expense = etf.expense_ratio()
+            aum = etf.total_assets()
+            div_y = etf.dividend_yield()
+            beta_v = etf.beta()
 
-        with col_check:
-            st.markdown("**Financial Health Checklist**")
-            for item in checklist:
-                icon = "✅" if item["passed"] else "❌"
-                st.markdown(f"{icon} **{item['description']}** — {item['value']}")
+            k1, k2, k3, k4 = st.columns(4)
+            k1.metric("Expense Ratio", f"{expense:.3%}" if expense else "N/A")
+            k2.metric("AUM", f"${aum/1e9:.1f}B" if aum else "N/A")
+            k3.metric("Dividend Yield", f"{div_y:.2%}" if div_y else "N/A")
+            k4.metric("Beta (3Y)", f"{beta_v:.2f}" if beta_v else "N/A")
 
-        st.divider()
-        summary_text, summary_level = generate_summary(scores, checklist)
-        st.subheader("Summary")
-        if summary_level == "success":
-            st.success(summary_text)
-        elif summary_level == "warning":
-            st.warning(summary_text)
-        elif summary_level == "error":
-            st.error(summary_text)
+            st.divider()
+
+            # Performance returns
+            ytd = etf.ytd_return()
+            ret3 = etf.three_year_return()
+            ret5 = etf.five_year_return()
+
+            p1, p2, p3 = st.columns(3)
+            p1.metric("YTD Return",       f"{ytd:.2%}"  if ytd  else "N/A")
+            p2.metric("3Y Avg Return",    f"{ret3:.2%}" if ret3 else "N/A")
+            p3.metric("5Y Avg Return",    f"{ret5:.2%}" if ret5 else "N/A")
+
+            returns_chart = {
+                "YTD": ytd,
+                "3Y Avg": ret3,
+                "5Y Avg": ret5,
+            }
+            if any(v is not None for v in returns_chart.values()):
+                etf_ret_fig = visualizer_sa.plot_etf_returns(returns_chart)
+                st.plotly_chart(etf_ret_fig, use_container_width=True)
+
+            st.divider()
+
+            # 52-week range
+            hi = etf.fifty_two_week_high()
+            lo = etf.fifty_two_week_low()
+            nav_price = etf.nav()
+            r1, r2, r3 = st.columns(3)
+            r1.metric("NAV / Price",     f"${nav_price:.2f}" if nav_price else "N/A")
+            r2.metric("52-Week High",    f"${hi:.2f}" if hi else "N/A")
+            r3.metric("52-Week Low",     f"${lo:.2f}" if lo else "N/A")
+
+            st.divider()
+
+            # Description
+            desc = etf.description()
+            if desc and desc != "No description available.":
+                with st.expander("Fund Description"):
+                    st.write(desc)
+
+            # Dividend history
+            st.subheader("Dividend History")
+            dividends = etf.dividend_history()
+            if not dividends.empty:
+                div_hist_fig = visualizer_sa.plot_dividend_history(dividends)
+                st.plotly_chart(div_hist_fig, use_container_width=True)
+            else:
+                st.info("This ETF does not pay dividends.")
+
+        # ── Stock Fundamental Analysis ─────────────────────────────────────────
         else:
-            st.info(summary_text)
+            fa = sr["fa"]
+            scores = sr["scores"]
+            checklist = sr["checklist"]
+            sector = sr["sector"]
+            peers = sr["peers"]
 
+            col_chart, col_check = st.columns([1, 1])
+            with col_chart:
+                radar_fig = visualizer_sa.plot_asset_assessment(scores)
+                st.plotly_chart(radar_fig, use_container_width=True)
+            with col_check:
+                st.markdown("**Financial Health Checklist**")
+                for item in checklist:
+                    icon = "✅" if item["passed"] else "❌"
+                    st.markdown(f"{icon} **{item['description']}** — {item['value']}")
+
+            st.divider()
+            summary_text, summary_level = generate_summary(scores, checklist)
+            st.subheader("Summary")
+            if summary_level == "success":
+                st.success(summary_text)
+            elif summary_level == "warning":
+                st.warning(summary_text)
+            elif summary_level == "error":
+                st.error(summary_text)
+            else:
+                st.info(summary_text)
+
+            st.divider()
+
+            # Peer Comparison
+            st.subheader("Peer Comparison")
+            if peers and sector:
+                st.caption(f"Sector: {sector} — comparing with {', '.join(t for t, _ in peers)}")
+                if st.button("Compare with Sector Peers", use_container_width=True):
+                    with st.spinner("Loading peer data..."):
+                        all_scores = {stock_ticker: scores}
+                        peer_rows = []
+                        for peer_ticker, _ in peers:
+                            fa_peer = FundamentalAnalysis(peer_ticker)
+                            peer_scores, _ = score_fundamentals(fa_peer)
+                            all_scores[peer_ticker] = peer_scores
+                            peer_rows.append({
+                                "Ticker": peer_ticker,
+                                "P/E": fa_peer.pe_ratio(),
+                                "P/B": fa_peer.pb_ratio(),
+                                "Profit Margin": fa_peer.profit_margin(),
+                                "Debt/Equity": fa_peer.debt_to_equity(),
+                                "EPS": fa_peer.eps(),
+                            })
+                    st.session_state["peer_res"] = {"all_scores": all_scores, "peer_rows": peer_rows}
+
+                if "peer_res" in st.session_state:
+                    pr = st.session_state["peer_res"]
+                    peer_fig = visualizer_sa.plot_peer_comparison(pr["all_scores"])
+                    st.plotly_chart(peer_fig, use_container_width=True)
+                    selected_row = {
+                        "Ticker": stock_ticker,
+                        "P/E": fa.pe_ratio(),
+                        "P/B": fa.pb_ratio(),
+                        "Profit Margin": fa.profit_margin(),
+                        "Debt/Equity": fa.debt_to_equity(),
+                        "EPS": fa.eps(),
+                    }
+                    table_df = pd.DataFrame([selected_row] + pr["peer_rows"]).set_index("Ticker")
+                    table_df["Profit Margin"] = table_df["Profit Margin"].apply(lambda x: f"{x:.1%}" if x else "N/A")
+                    for col in ["P/E", "P/B", "Debt/Equity", "EPS"]:
+                        table_df[col] = table_df[col].apply(lambda x: f"{x:.2f}" if x else "N/A")
+                    st.dataframe(table_df, use_container_width=True)
+            else:
+                st.info("No sector peers found in the database.")
+
+            st.divider()
+            st.subheader("Dividend History")
+            dividends = fa.dividend_history()
+            if not dividends.empty:
+                div_hist_fig = visualizer_sa.plot_dividend_history(dividends)
+                st.plotly_chart(div_hist_fig, use_container_width=True)
+                div_yield = fa._info.get("dividendYield")
+                div_rate  = fa._info.get("dividendRate")
+                payout    = fa._info.get("payoutRatio")
+                dh_col1, dh_col2, dh_col3 = st.columns(3)
+                dh_col1.metric("Dividend Yield",      f"{div_yield:.2%}" if div_yield else "N/A")
+                dh_col2.metric("Annual Dividend Rate", f"${div_rate:.2f}" if div_rate else "N/A")
+                dh_col3.metric("Payout Ratio",         f"{payout:.2%}" if payout else "N/A")
+            else:
+                st.info("This stock does not pay dividends.")
+
+            st.divider()
+            st.subheader("Latest News")
+            news = fa.get_news()
+            if news:
+                for article in news:
+                    st.markdown(f"**[{article['title']}]({article['link']})**")
+                    st.caption(f"{article['publisher']} · {article['date']}")
+                    st.divider()
+            else:
+                st.info("No recent news found for this stock.")
+
+        # ── Technical Analysis (both stocks and ETFs) ──────────────────────────
         st.divider()
         st.subheader("Technical Analysis")
 
@@ -920,82 +1077,3 @@ with tab_stock:
 
         rsi_fig = visualizer_sa.plot_rsi(rsi_series)
         st.plotly_chart(rsi_fig, use_container_width=True)
-
-        st.divider()
-        st.subheader("Peer Comparison")
-
-        if peers and sector:
-            st.caption(f"Sector: {sector} — comparing with {', '.join(t for t, _ in peers)}")
-
-            if st.button("Compare with Sector Peers", use_container_width=True):
-                with st.spinner("Loading peer data..."):
-                    all_scores = {stock_ticker: scores}
-                    peer_rows = []
-                    for peer_ticker, _ in peers:
-                        fa_peer = FundamentalAnalysis(peer_ticker)
-                        peer_scores, _ = score_fundamentals(fa_peer)
-                        all_scores[peer_ticker] = peer_scores
-                        peer_rows.append({
-                            "Ticker": peer_ticker,
-                            "P/E": fa_peer.pe_ratio(),
-                            "P/B": fa_peer.pb_ratio(),
-                            "Profit Margin": fa_peer.profit_margin(),
-                            "Debt/Equity": fa_peer.debt_to_equity(),
-                            "EPS": fa_peer.eps(),
-                        })
-                st.session_state["peer_res"] = {
-                    "all_scores": all_scores,
-                    "peer_rows": peer_rows,
-                }
-
-            if "peer_res" in st.session_state:
-                pr = st.session_state["peer_res"]
-                peer_fig = visualizer_sa.plot_peer_comparison(pr["all_scores"])
-                st.plotly_chart(peer_fig, use_container_width=True)
-
-                selected_row = {
-                    "Ticker": stock_ticker,
-                    "P/E": fa.pe_ratio(),
-                    "P/B": fa.pb_ratio(),
-                    "Profit Margin": fa.profit_margin(),
-                    "Debt/Equity": fa.debt_to_equity(),
-                    "EPS": fa.eps(),
-                }
-                table_df = pd.DataFrame([selected_row] + pr["peer_rows"]).set_index("Ticker")
-                table_df["Profit Margin"] = table_df["Profit Margin"].apply(
-                    lambda x: f"{x:.1%}" if x else "N/A"
-                )
-                for col in ["P/E", "P/B", "Debt/Equity", "EPS"]:
-                    table_df[col] = table_df[col].apply(
-                        lambda x: f"{x:.2f}" if x else "N/A"
-                    )
-                st.dataframe(table_df, use_container_width=True)
-        else:
-            st.info("No sector peers found in the database.")
-
-        st.divider()
-        st.subheader("Dividend History")
-        dividends = fa.dividend_history()
-        if not dividends.empty:
-            div_hist_fig = visualizer_sa.plot_dividend_history(dividends)
-            st.plotly_chart(div_hist_fig, use_container_width=True)
-            div_yield = fa._info.get("dividendYield")
-            div_rate = fa._info.get("dividendRate")
-            payout = fa._info.get("payoutRatio")
-            dh_col1, dh_col2, dh_col3 = st.columns(3)
-            dh_col1.metric("Dividend Yield", f"{div_yield:.2%}" if div_yield else "N/A")
-            dh_col2.metric("Annual Dividend Rate", f"${div_rate:.2f}" if div_rate else "N/A")
-            dh_col3.metric("Payout Ratio", f"{payout:.2%}" if payout else "N/A")
-        else:
-            st.info("This stock does not pay dividends.")
-
-        st.divider()
-        st.subheader("Latest News")
-        news = fa.get_news()
-        if news:
-            for article in news:
-                st.markdown(f"**[{article['title']}]({article['link']})**")
-                st.caption(f"{article['publisher']} · {article['date']}")
-                st.divider()
-        else:
-            st.info("No recent news found for this stock.")

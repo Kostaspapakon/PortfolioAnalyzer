@@ -379,6 +379,29 @@ class Visualizer:
         )
         return self._style(fig)
 
+    def plot_etf_returns(self, returns: dict):
+        labels = list(returns.keys())
+        values = [returns[k] for k in labels]
+        colors = [_GREEN if v and v >= 0 else _RED for v in values]
+
+        fig = go.Figure(go.Bar(
+            x=labels,
+            y=[v if v else 0 for v in values],
+            marker_color=colors,
+            marker_line_width=0,
+            text=[f"{v:+.2%}" if v is not None else "N/A" for v in values],
+            textposition="outside",
+            textfont=dict(size=12),
+        ))
+        fig.update_layout(
+            title="Historical Performance",
+            yaxis_tickformat=".0%",
+            showlegend=False,
+            bargap=0.4,
+        )
+        fig.add_hline(y=0, line_color="rgba(128,128,128,0.4)", line_width=1)
+        return self._style(fig)
+
     def plot_efficient_frontier(self, frontier_df, tickers):
         best_idx = frontier_df["Sharpe"].idxmax()
         best = frontier_df.loc[best_idx]

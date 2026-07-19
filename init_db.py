@@ -112,9 +112,58 @@ stocks = [
     ("FCX", "Freeport-McMoRan", "Materials"),
 ]
 
+etfs = [
+    # Broad US Equity
+    ("SPY",  "SPDR S&P 500 ETF",               "ETF - US Equity"),
+    ("VOO",  "Vanguard S&P 500 ETF",            "ETF - US Equity"),
+    ("IVV",  "iShares Core S&P 500 ETF",        "ETF - US Equity"),
+    ("QQQ",  "Invesco QQQ NASDAQ-100 ETF",       "ETF - US Equity"),
+    ("VTI",  "Vanguard Total Stock Market ETF",  "ETF - US Equity"),
+    ("IWM",  "iShares Russell 2000 ETF",         "ETF - US Equity"),
+    ("VUG",  "Vanguard Growth ETF",              "ETF - US Equity"),
+    ("VTV",  "Vanguard Value ETF",               "ETF - US Equity"),
+    ("RSP",  "Invesco S&P 500 Equal Weight ETF", "ETF - US Equity"),
+    # International
+    ("EFA",  "iShares MSCI EAFE ETF",            "ETF - International"),
+    ("VWO",  "Vanguard Emerging Markets ETF",    "ETF - International"),
+    ("VXUS", "Vanguard Total International ETF", "ETF - International"),
+    ("VEA",  "Vanguard Developed Markets ETF",   "ETF - International"),
+    ("EEM",  "iShares MSCI Emerging Markets ETF","ETF - International"),
+    # Sector
+    ("XLK",  "Technology Select Sector SPDR",    "ETF - Sector"),
+    ("XLF",  "Financial Select Sector SPDR",     "ETF - Sector"),
+    ("XLV",  "Health Care Select Sector SPDR",   "ETF - Sector"),
+    ("XLE",  "Energy Select Sector SPDR",        "ETF - Sector"),
+    ("XLI",  "Industrial Select Sector SPDR",    "ETF - Sector"),
+    ("XLY",  "Consumer Discretionary SPDR",      "ETF - Sector"),
+    ("XLRE", "Real Estate Select Sector SPDR",   "ETF - Sector"),
+    ("XLP",  "Consumer Staples Select Sector SPDR","ETF - Sector"),
+    ("SOXX", "iShares Semiconductor ETF",        "ETF - Sector"),
+    # Bonds
+    ("BND",  "Vanguard Total Bond Market ETF",   "ETF - Bonds"),
+    ("AGG",  "iShares Core US Aggregate Bond ETF","ETF - Bonds"),
+    ("TLT",  "iShares 20+ Year Treasury Bond ETF","ETF - Bonds"),
+    ("SHY",  "iShares 1-3 Year Treasury Bond ETF","ETF - Bonds"),
+    ("HYG",  "iShares High Yield Corporate Bond ETF","ETF - Bonds"),
+    ("LQD",  "iShares Investment Grade Corporate ETF","ETF - Bonds"),
+    # Dividend
+    ("VYM",  "Vanguard High Dividend Yield ETF", "ETF - Dividend"),
+    ("SCHD", "Schwab US Dividend Equity ETF",    "ETF - Dividend"),
+    ("DVY",  "iShares Select Dividend ETF",      "ETF - Dividend"),
+    # Commodities & Real Assets
+    ("GLD",  "SPDR Gold Trust ETF",              "ETF - Commodities"),
+    ("SLV",  "iShares Silver Trust ETF",         "ETF - Commodities"),
+    ("VNQ",  "Vanguard Real Estate ETF",         "ETF - Real Estate"),
+    # Thematic
+    ("ARKK", "ARK Innovation ETF",               "ETF - Thematic"),
+    ("ICLN", "iShares Global Clean Energy ETF",  "ETF - Thematic"),
+]
+
 db = Database()
 for ticker, name, sector in stocks:
     db.insert_stock(ticker, name, sector)
+for ticker, name, sector in etfs:
+    db.insert_stock(ticker, name, sector)
 db.close()
 
-print(f"Database initialized with {len(stocks)} stocks.")
+print(f"Database initialized with {len(stocks)} stocks and {len(etfs)} ETFs.")
