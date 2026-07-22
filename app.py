@@ -12,6 +12,7 @@ from src.fundamentals import FundamentalAnalysis
 from src.technical import TechnicalAnalysis
 from src.report import generate_report
 from src.etf import ETFAnalysis
+from datetime import datetime as _dt
 
 
 def calculate_portfolio_score(sharpe, max_drawdown, outperformance, sector_weights):
@@ -262,6 +263,53 @@ def format_delta(value, initial):
     return f"{sign}€{abs(diff):,.2f}"
 
 
+_BADGE_COLORS = ["#4F8EF7", "#FF9800", "#2ECC71", "#E74C3C", "#9B59B6", "#1ABC9C"]
+
+
+@st.cache_data(ttl=900)
+def fetch_portfolio_news(tickers: tuple, n_per_ticker: int = 6) -> list:
+    all_articles = []
+    seen = set()
+
+    for ticker in tickers:
+        try:
+            raw_news = yf.Ticker(ticker).news or []
+            for item in raw_news[:n_per_ticker]:
+                content = item.get("content", item)
+                title = content.get("title") or item.get("title", "")
+                if not title or title in seen:
+                    continue
+                seen.add(title)
+
+                link = (
+                    content.get("clickThroughUrl", {}).get("url")
+                    or content.get("canonicalUrl", {}).get("url")
+                    or item.get("link", "#")
+                )
+                publisher = (
+                    content.get("provider", {}).get("displayName")
+                    or item.get("publisher", "Unknown")
+                )
+                pub_date = content.get("pubDate")
+                if not pub_date:
+                    ts = item.get("providerPublishTime")
+                    if ts:
+                        pub_date = _dt.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
+
+                all_articles.append({
+                    "ticker":    ticker,
+                    "title":     title,
+                    "link":      link,
+                    "publisher": publisher,
+                    "date":      pub_date or "",
+                })
+        except Exception:
+            continue
+
+    all_articles.sort(key=lambda x: x["date"], reverse=True)
+    return all_articles
+
+
 def analyze_real_portfolio(transactions_df):
     rows = []
     value_series_list = []
@@ -363,472 +411,528 @@ hr { border-color: rgba(128,128,128,0.15) !important; margin: 1.2rem 0 !importan
 </style>
 """, unsafe_allow_html=True)
 
-st.title("Portfolio Analyzer")
+# ── Shared stock list ──────────────────────────────────────────────────────────
+db = Database()
+all_stocks = db.get_all_stocks()
+db.close()
+stock_display = sorted([f"{n} ({t})" for t, n, _ in all_stocks])
 
-# ── Sidebar ────────────────────────────────────────────────────────────────────
+# ── Sidebar navigation ─────────────────────────────────────────────────────────
 with st.sidebar:
-    st.header("My Portfolio")
-    st.caption("Add your real stock purchases below.")
+    st.markdown("### Portfolio Analyzer")
+    st.divider()
+    nav = st.radio("nav", ["My Portfolio", "Stock Analysis"], label_visibility="collapsed")
+    if nav == "My Portfolio" and "res" in st.session_state:
+        st.divider()
+        if st.button("← Edit Portfolio", use_container_width=True):
+            st.session_state["page"] = "setup"
+            st.rerun()
 
-    db = Database()
-    all_stocks = db.get_all_stocks()
-    db.close()
-    stock_display = sorted([f"{n} ({t})" for t, n, _ in all_stocks])
+# ══════════════════════════════════════════════════════════════════════════════
+# MY PORTFOLIO
+# ══════════════════════════════════════════════════════════════════════════════
+if nav == "My Portfolio":
+    page = st.session_state.get("page", "setup")
 
-    default_tx = pd.DataFrame({
-        "Stock": ["Apple (AAPL)", "NVIDIA (NVDA)"],
-        "Purchase Date": [
-            date.today() - timedelta(days=365),
-            date.today() - timedelta(days=730),
-        ],
-        "Amount (EUR)": [1000.0, 500.0],
-    })
+    # ── Setup / Input Screen ────────────────────────────────────────────────────
+    if page == "setup":
+        st.title("My Portfolio")
+        st.markdown(
+            "Add each stock or ETF purchase below. You can enter multiple transactions, "
+            "including the same asset bought at different dates."
+        )
+        st.divider()
 
-    transactions = st.data_editor(
-        default_tx,
-        num_rows="dynamic",
-        column_config={
-            "Stock": st.column_config.SelectboxColumn(
-                "Stock", options=stock_display, required=True
-            ),
-            "Purchase Date": st.column_config.DateColumn(
-                "Purchase Date", required=True
-            ),
-            "Amount (EUR)": st.column_config.NumberColumn(
-                "Amount (EUR)", min_value=1.0, step=100.0
-            ),
-        },
-        use_container_width=True,
-    )
+        default_tx = st.session_state.get(
+            "input_transactions",
+            pd.DataFrame({
+                "Stock": ["Apple (AAPL)", "NVIDIA (NVDA)"],
+                "Purchase Date": [
+                    date.today() - timedelta(days=365),
+                    date.today() - timedelta(days=730),
+                ],
+                "Amount (EUR)": [1000.0, 500.0],
+            }),
+        )
 
-    analyze = st.button("Analyze Portfolio", use_container_width=True)
+        transactions = st.data_editor(
+            default_tx,
+            num_rows="dynamic",
+            column_config={
+                "Stock": st.column_config.SelectboxColumn(
+                    "Stock / ETF", options=stock_display, required=True,
+                ),
+                "Purchase Date": st.column_config.DateColumn(
+                    "Purchase Date", required=True,
+                ),
+                "Amount (EUR)": st.column_config.NumberColumn(
+                    "Amount (EUR)", min_value=1.0, step=100.0, format="€%.2f",
+                ),
+            },
+            use_container_width=True,
+            height=min(450, max(200, 55 + 35 * (len(default_tx) + 2))),
+        )
 
-# ── Tabs ───────────────────────────────────────────────────────────────────────
-tab_portfolio, tab_markowitz, tab_stock = st.tabs(
-    ["Portfolio Analysis", "Markowitz Optimization", "Stock Analysis"]
-)
+        st.divider()
+        _, cta_col, _ = st.columns([1, 2, 1])
+        analyze = cta_col.button(
+            "Analyze Portfolio →", use_container_width=True, type="primary"
+        )
 
-# ── Portfolio Analysis Tab ─────────────────────────────────────────────────────
-with tab_portfolio:
-    if analyze:
-        valid_tx = transactions.dropna(subset=["Stock", "Purchase Date", "Amount (EUR)"])
-        valid_tx = valid_tx[valid_tx["Amount (EUR)"] > 0]
+        if analyze:
+            st.session_state["input_transactions"] = transactions
+            valid_tx = transactions.dropna(subset=["Stock", "Purchase Date", "Amount (EUR)"])
+            valid_tx = valid_tx[valid_tx["Amount (EUR)"] > 0]
 
-        if valid_tx.empty:
-            st.error("Please add at least one stock purchase.")
-            st.stop()
-
-        with st.spinner("Downloading market data and calculating..."):
-            results_df, portfolio_series, spy_series, individual_values = analyze_real_portfolio(valid_tx)
-
-            if results_df is None:
-                st.error("Could not load data for any of the specified stocks.")
+            if valid_tx.empty:
+                st.error("Please add at least one stock purchase.")
                 st.stop()
 
-            total_invested = results_df["Invested (EUR)"].sum()
-            total_current = results_df["Current Value (EUR)"].sum()
-            portfolio_return = (total_current - total_invested) / total_invested
-            benchmark_return = (float(spy_series.iloc[-1]) - total_invested) / total_invested
-            outperformance = portfolio_return - benchmark_return
+            with st.spinner("Downloading market data and calculating..."):
+                results_df, portfolio_series, spy_series, individual_values = analyze_real_portfolio(valid_tx)
 
-            # Risk metrics from actual portfolio series
-            port_rets = portfolio_series.pct_change().dropna()
-            volatility = float(port_rets.std() * np.sqrt(252))
-            rf_daily = 0.05 / 252
-            excess = port_rets - rf_daily
-            sharpe = float((excess.mean() / excess.std()) * np.sqrt(252)) if excess.std() > 0 else 0.0
-            peak = portfolio_series.cummax()
-            max_drawdown = float(((portfolio_series - peak) / peak).min())
+                if results_df is None:
+                    st.error("Could not load data for any of the specified stocks.")
+                    st.stop()
 
-            spy_rets = spy_series.pct_change().dropna()
-            p_aligned, s_aligned = port_rets.align(spy_rets, join="inner")
-            cov_matrix = np.cov(p_aligned, s_aligned)
-            beta = float(cov_matrix[0, 1] / cov_matrix[1, 1]) if cov_matrix[1, 1] > 0 else 1.0
+                total_invested = results_df["Invested (EUR)"].sum()
+                total_current = results_df["Current Value (EUR)"].sum()
+                portfolio_return = (total_current - total_invested) / total_invested
+                benchmark_return = (float(spy_series.iloc[-1]) - total_invested) / total_invested
+                outperformance = portfolio_return - benchmark_return
 
-            annual_returns = portfolio_series.resample("YE").last().pct_change().dropna()
+                port_rets = portfolio_series.pct_change().dropna()
+                volatility = float(port_rets.std() * np.sqrt(252))
+                rf_daily = 0.05 / 252
+                excess = port_rets - rf_daily
+                sharpe = float((excess.mean() / excess.std()) * np.sqrt(252)) if excess.std() > 0 else 0.0
+                peak = portfolio_series.cummax()
+                max_drawdown = float(((portfolio_series - peak) / peak).min())
 
-            # Unique tickers with weights from invested amounts for Portfolio object
-            ticker_amounts = results_df.groupby("Ticker")["Invested (EUR)"].sum()
-            tickers = list(ticker_amounts.index)
-            weights = [float(ticker_amounts[t] / ticker_amounts.sum()) for t in tickers]
-            min_date = str(pd.to_datetime(valid_tx["Purchase Date"]).min().date())
+                spy_rets = spy_series.pct_change().dropna()
+                p_aligned, s_aligned = port_rets.align(spy_rets, join="inner")
+                cov_matrix = np.cov(p_aligned, s_aligned)
+                beta = float(cov_matrix[0, 1] / cov_matrix[1, 1]) if cov_matrix[1, 1] > 0 else 1.0
 
-            stocks = [Stock(t) for t in tickers]
-            portfolio = Portfolio(stocks=stocks, weights=weights)
-            portfolio.load_all_data(
-                start=min_date, end=date.today().strftime("%Y-%m-%d")
-            )
-            portfolio.calculate_portfolio_returns()
+                annual_returns = portfolio_series.resample("YE").last().pct_change().dropna()
 
-            db_s = Database()
-            sector_map = db_s.get_sectors(tickers)
-            db_s.close()
-            sector_weights = {}
-            for t, w in zip(tickers, weights):
-                sector = sector_map.get(t, "Other")
-                sector_weights[sector] = sector_weights.get(sector, 0) + w
+                ticker_amounts = results_df.groupby("Ticker")["Invested (EUR)"].sum()
+                tickers = list(ticker_amounts.index)
+                weights = [float(ticker_amounts[t] / ticker_amounts.sum()) for t in tickers]
+                min_date = str(pd.to_datetime(valid_tx["Purchase Date"]).min().date())
 
-            score_total, score_sharpe, score_dd, score_div, score_out = calculate_portfolio_score(
-                sharpe, max_drawdown, outperformance, sector_weights
-            )
+                stocks = [Stock(t) for t in tickers]
+                portfolio = Portfolio(stocks=stocks, weights=weights)
+                portfolio.load_all_data(start=min_date, end=date.today().strftime("%Y-%m-%d"))
+                portfolio.calculate_portfolio_returns()
 
-            simulation_df = portfolio.simulate_monte_carlo(total_invested)
-            frontier_df = portfolio.calculate_efficient_frontier() if len(tickers) > 1 else None
-            corr_matrix = portfolio.calculate_correlation() if len(tickers) > 1 else None
-            dividend_df, portfolio_yield, total_income = portfolio.calculate_dividend_income(total_invested)
+                db_s = Database()
+                sector_map = db_s.get_sectors(tickers)
+                db_s.close()
+                sector_weights = {}
+                for t, w in zip(tickers, weights):
+                    sector = sector_map.get(t, "Other")
+                    sector_weights[sector] = sector_weights.get(sector, 0) + w
 
-        st.session_state["res"] = {
-            "results_df": results_df,
-            "portfolio": portfolio,
-            "portfolio_value": portfolio_series,
-            "benchmark_value": spy_series,
-            "portfolio_return": portfolio_return,
-            "benchmark_return": benchmark_return,
-            "outperformance": outperformance,
-            "sharpe": sharpe,
-            "max_drawdown": max_drawdown,
-            "beta": beta,
-            "volatility": volatility,
-            "tickers": tickers,
-            "weights": weights,
-            "initial_investment": total_invested,
-            "sector_weights": sector_weights,
-            "individual_values": individual_values,
-            "annual_returns": annual_returns,
-            "simulation_df": simulation_df,
-            "frontier_df": frontier_df,
-            "corr_matrix": corr_matrix,
-            "dividend_df": dividend_df,
-            "portfolio_yield": portfolio_yield,
-            "total_income": total_income,
-            "score_total": score_total,
-            "score_sharpe": score_sharpe,
-            "score_dd": score_dd,
-            "score_div": score_div,
-            "score_out": score_out,
-        }
-        st.session_state.pop("dca_res", None)
-        st.session_state.pop("markowitz_res", None)
-        st.session_state.pop("pdf_bytes", None)
+                score_total, score_sharpe, score_dd, score_div, score_out = calculate_portfolio_score(
+                    sharpe, max_drawdown, outperformance, sector_weights
+                )
 
-    if "res" in st.session_state:
-        r = st.session_state["res"]
-        results_df = r["results_df"]
-        portfolio = r["portfolio"]
-        portfolio_value = r["portfolio_value"]
-        benchmark_value = r["benchmark_value"]
-        portfolio_return = r["portfolio_return"]
-        benchmark_return = r["benchmark_return"]
-        outperformance = r["outperformance"]
-        sharpe = r["sharpe"]
-        max_drawdown = r["max_drawdown"]
-        beta = r["beta"]
-        volatility = r["volatility"]
-        tickers = r["tickers"]
-        weights = r["weights"]
-        initial_investment = r["initial_investment"]
-        sector_weights = r["sector_weights"]
-        individual_values = r["individual_values"]
-        annual_returns = r["annual_returns"]
-        simulation_df = r["simulation_df"]
-        frontier_df = r["frontier_df"]
-        corr_matrix = r["corr_matrix"]
-        dividend_df = r["dividend_df"]
-        portfolio_yield = r["portfolio_yield"]
-        total_income = r["total_income"]
-        score_total = r["score_total"]
-        score_sharpe = r["score_sharpe"]
-        score_dd = r["score_dd"]
-        score_div = r["score_div"]
-        score_out = r["score_out"]
+                simulation_df = portfolio.simulate_monte_carlo(total_invested)
+                frontier_df = portfolio.calculate_efficient_frontier() if len(tickers) > 1 else None
+                corr_matrix = portfolio.calculate_correlation() if len(tickers) > 1 else None
+                dividend_df, portfolio_yield, total_income = portfolio.calculate_dividend_income(total_invested)
 
-        visualizer = Visualizer()
-
-        # ── Holdings Breakdown ─────────────────────────────────────────────────
-        st.subheader("Holdings")
-        display_df = results_df[["Company", "Ticker", "Purchase Date", "Invested (EUR)",
-                                  "Shares", "Buy Price", "Current Price",
-                                  "Current Value (EUR)", "Profit / Loss (EUR)", "Return"]].copy()
-        styled = (
-            display_df.style
-            .format({
-                "Invested (EUR)":       "€{:.2f}",
-                "Shares":               "{:.4f}",
-                "Buy Price":            "${:.2f}",
-                "Current Price":        "${:.2f}",
-                "Current Value (EUR)":  "€{:.2f}",
-                "Profit / Loss (EUR)":  lambda x: f"+€{x:.2f}" if x >= 0 else f"-€{abs(x):.2f}",
-                "Return":               "{:+.2%}",
-            })
-            .map(
-                lambda v: "color: #2ECC71; font-weight: 600" if isinstance(v, (int, float)) and v >= 0
-                          else ("color: #E74C3C; font-weight: 600" if isinstance(v, (int, float)) else ""),
-                subset=["Profit / Loss (EUR)", "Return"],
-            )
-        )
-        st.dataframe(styled, use_container_width=True, hide_index=True)
-
-        st.divider()
-
-        # ── Portfolio Score ────────────────────────────────────────────────────
-        verdict, verdict_level = portfolio_verdict(score_total)
-        stars = score_to_stars(score_total)
-
-        sc1, sc2, sc3 = st.columns([1, 1, 2])
-        sc1.metric("Portfolio Score", f"{score_total:.1f} / 5.0")
-        sc2.markdown(f"<h2 style='margin:0'>{stars}</h2>", unsafe_allow_html=True)
-        with sc3:
-            if verdict_level == "success":
-                st.success(verdict)
-            elif verdict_level == "warning":
-                st.warning(verdict)
-            elif verdict_level == "error":
-                st.error(verdict)
-            else:
-                st.info(verdict)
-
-        b1, b2, b3, b4 = st.columns(4)
-        b1.metric("Sharpe", f"{score_sharpe:.1f} / 2.0")
-        b2.metric("Risk (Drawdown)", f"{score_dd:.2f} / 1.5")
-        b3.metric("Diversification", f"{score_div:.2f} / 1.0")
-        b4.metric("vs S&P 500", f"{score_out:.2f} / 0.5")
-
-        st.divider()
-
-        # ── Chart ──────────────────────────────────────────────────────────────
-        fig = visualizer.plot_comparison(portfolio_value, benchmark_value)
-        st.plotly_chart(fig, use_container_width=True)
-
-        # ── Metrics ────────────────────────────────────────────────────────────
-        st.subheader("Portfolio Summary")
-
-        col1, col2, col3, col4 = st.columns(4)
-        col1.metric("Total Invested", f"€{initial_investment:,.2f}")
-        col2.metric("Current Value", f"€{results_df['Current Value (EUR)'].sum():,.2f}")
-        col3.metric("Portfolio Return", f"{portfolio_return:.2%}")
-        col4.metric("S&P 500 Return", f"{benchmark_return:.2%}")
-
-        col5, col6, col7, col8, col9 = st.columns(5)
-        col5.metric("Outperformance", f"{outperformance:.2%}")
-        col6.metric("Volatility", f"{volatility:.2%}")
-        col7.metric("Sharpe Ratio", f"{sharpe:.2f}")
-        col8.metric("Max Drawdown", f"{max_drawdown:.2%}")
-        col9.metric("Beta", f"{beta:.2f}")
-
-        # ── Sector Allocation ──────────────────────────────────────────────────
-        st.subheader("Sector Allocation")
-        sector_fig = visualizer.plot_sector_allocation(sector_weights)
-        st.plotly_chart(sector_fig, use_container_width=True)
-
-        # ── Dividend Analysis ──────────────────────────────────────────────────
-        st.subheader("Dividend Analysis")
-        div_col1, div_col2, div_col3 = st.columns(3)
-        div_col1.metric("Portfolio Dividend Yield", f"{portfolio_yield:.2%}")
-        div_col2.metric("Est. Annual Income", f"€{total_income:,.2f}")
-        div_col3.metric("Est. Monthly Income", f"€{total_income / 12:,.2f}")
-
-        if total_income > 0:
-            div_fig = visualizer.plot_dividend_income(dividend_df)
-            st.plotly_chart(div_fig, use_container_width=True)
-        else:
-            st.info("None of the selected stocks pay dividends.")
-
-        # ── Diversification Analysis ───────────────────────────────────────────
-        st.subheader("Diversification Analysis")
-        show_diversification_warnings(sector_weights, corr_matrix, tickers, weights)
-
-        # ── Individual Stock Performance ───────────────────────────────────────
-        if individual_values is not None:
-            st.subheader("Individual Stock Performance")
-            individual_fig = visualizer.plot_individual_stocks(individual_values)
-            st.plotly_chart(individual_fig, use_container_width=True)
-
-        # ── Annual Returns ─────────────────────────────────────────────────────
-        st.subheader("Annual Returns")
-        annual_fig = visualizer.plot_annual_returns(annual_returns)
-        st.plotly_chart(annual_fig, use_container_width=True)
-
-        # ── Risk Warnings ──────────────────────────────────────────────────────
-        show_risk_warnings(max_drawdown, sharpe, outperformance, beta)
-
-        # ── Monte Carlo Simulation ─────────────────────────────────────────────
-        st.subheader("Monte Carlo Simulation")
-        monte_fig = visualizer.plot_monte_carlo(simulation_df, initial_investment)
-        st.plotly_chart(monte_fig, use_container_width=True)
-
-        final_values = simulation_df.iloc[-1]
-        mean_val = final_values.mean()
-        best_val = final_values.quantile(0.95)
-        worst_val = final_values.quantile(0.05)
-
-        mc_col1, mc_col2, mc_col3 = st.columns(3)
-        mc_col1.metric("Mean Final Value", f"€{mean_val:,.2f}", delta=format_delta(mean_val, initial_investment))
-        mc_col2.metric("Best Case (95th percentile)", f"€{best_val:,.2f}", delta=format_delta(best_val, initial_investment))
-        mc_col3.metric("Worst Case (5th percentile)", f"€{worst_val:,.2f}", delta=format_delta(worst_val, initial_investment))
-
-        # ── Efficient Frontier ─────────────────────────────────────────────────
-        if frontier_df is not None:
-            st.subheader("Efficient Frontier")
-            frontier_fig = visualizer.plot_efficient_frontier(frontier_df, tickers)
-            st.plotly_chart(frontier_fig, use_container_width=True)
-
-        # ── Correlation Matrix ─────────────────────────────────────────────────
-        if corr_matrix is not None:
-            st.subheader("Correlation Matrix")
-            corr_fig = visualizer.plot_correlation(corr_matrix)
-            st.plotly_chart(corr_fig, use_container_width=True)
-
-        # ── DCA Simulator ─────────────────────────────────────────────────────
-        st.subheader("Dollar Cost Averaging Simulator")
-        st.caption("Compare investing a fixed amount every month vs. investing the total sum upfront.")
-
-        monthly_amount = st.number_input("Monthly Investment (€)", min_value=1.0, value=200.0, step=50.0)
-
-        if st.button("Simulate DCA", use_container_width=True):
-            dca_series, lump_sum_series, total_invested_dca = portfolio.calculate_dca(monthly_amount)
-            st.session_state["dca_res"] = {
-                "dca_series": dca_series,
-                "lump_sum_series": lump_sum_series,
-                "total_invested": total_invested_dca,
+            st.session_state["res"] = {
+                "results_df": results_df,
+                "portfolio": portfolio,
+                "portfolio_value": portfolio_series,
+                "benchmark_value": spy_series,
+                "portfolio_return": portfolio_return,
+                "benchmark_return": benchmark_return,
+                "outperformance": outperformance,
+                "sharpe": sharpe,
+                "max_drawdown": max_drawdown,
+                "beta": beta,
+                "volatility": volatility,
+                "tickers": tickers,
+                "weights": weights,
+                "initial_investment": total_invested,
+                "sector_weights": sector_weights,
+                "individual_values": individual_values,
+                "annual_returns": annual_returns,
+                "simulation_df": simulation_df,
+                "frontier_df": frontier_df,
+                "corr_matrix": corr_matrix,
+                "dividend_df": dividend_df,
+                "portfolio_yield": portfolio_yield,
+                "total_income": total_income,
+                "score_total": score_total,
+                "score_sharpe": score_sharpe,
+                "score_dd": score_dd,
+                "score_div": score_div,
+                "score_out": score_out,
             }
+            st.session_state["page"] = "analysis"
+            st.session_state.pop("dca_res", None)
+            st.session_state.pop("markowitz_res", None)
+            st.session_state.pop("pdf_bytes", None)
+            st.session_state.pop("portfolio_news", None)
+            st.rerun()
 
-        if "dca_res" in st.session_state:
-            dr = st.session_state["dca_res"]
-            dca_fig = visualizer.plot_dca(dr["dca_series"], dr["lump_sum_series"], dr["total_invested"])
-            st.plotly_chart(dca_fig, use_container_width=True)
+    # ── Analysis Screen ─────────────────────────────────────────────────────────
+    else:
+        tab_portfolio, tab_markowitz = st.tabs(["Portfolio Analysis", "Markowitz Optimization"])
 
-            dca_final = dr["dca_series"].iloc[-1]
-            ls_final = dr["lump_sum_series"].iloc[-1]
-            total_invested_dca = dr["total_invested"]
+        # ── Portfolio Analysis Tab ──────────────────────────────────────────────
+        with tab_portfolio:
+            r = st.session_state["res"]
+            results_df = r["results_df"]
+            portfolio = r["portfolio"]
+            portfolio_value = r["portfolio_value"]
+            benchmark_value = r["benchmark_value"]
+            portfolio_return = r["portfolio_return"]
+            benchmark_return = r["benchmark_return"]
+            outperformance = r["outperformance"]
+            sharpe = r["sharpe"]
+            max_drawdown = r["max_drawdown"]
+            beta = r["beta"]
+            volatility = r["volatility"]
+            tickers = r["tickers"]
+            weights = r["weights"]
+            initial_investment = r["initial_investment"]
+            sector_weights = r["sector_weights"]
+            individual_values = r["individual_values"]
+            annual_returns = r["annual_returns"]
+            simulation_df = r["simulation_df"]
+            frontier_df = r["frontier_df"]
+            corr_matrix = r["corr_matrix"]
+            dividend_df = r["dividend_df"]
+            portfolio_yield = r["portfolio_yield"]
+            total_income = r["total_income"]
+            score_total = r["score_total"]
+            score_sharpe = r["score_sharpe"]
+            score_dd = r["score_dd"]
+            score_div = r["score_div"]
+            score_out = r["score_out"]
 
-            dca_col1, dca_col2, dca_col3 = st.columns(3)
-            dca_col1.metric("Total Invested", f"€{total_invested_dca:,.2f}")
-            dca_col2.metric("DCA Final Value", f"€{dca_final:,.2f}", delta=format_delta(dca_final, total_invested_dca))
-            dca_col3.metric("Lump Sum Final Value", f"€{ls_final:,.2f}", delta=format_delta(ls_final, total_invested_dca))
+            visualizer = Visualizer()
 
-            diff = abs(dca_final - ls_final)
-            if dca_final > ls_final:
-                st.success(f"DCA outperformed Lump Sum by €{diff:,.2f} over this period.")
+            # ── Holdings Breakdown ──────────────────────────────────────────────
+            st.subheader("Holdings")
+            display_df = results_df[["Company", "Ticker", "Purchase Date", "Invested (EUR)",
+                                      "Shares", "Buy Price", "Current Price",
+                                      "Current Value (EUR)", "Profit / Loss (EUR)", "Return"]].copy()
+            styled = (
+                display_df.style
+                .format({
+                    "Invested (EUR)":       "€{:.2f}",
+                    "Shares":               "{:.4f}",
+                    "Buy Price":            "${:.2f}",
+                    "Current Price":        "${:.2f}",
+                    "Current Value (EUR)":  "€{:.2f}",
+                    "Profit / Loss (EUR)":  lambda x: f"+€{x:.2f}" if x >= 0 else f"-€{abs(x):.2f}",
+                    "Return":               "{:+.2%}",
+                })
+                .map(
+                    lambda v: "color: #2ECC71; font-weight: 600" if isinstance(v, (int, float)) and v >= 0
+                              else ("color: #E74C3C; font-weight: 600" if isinstance(v, (int, float)) else ""),
+                    subset=["Profit / Loss (EUR)", "Return"],
+                )
+            )
+            st.dataframe(styled, use_container_width=True, hide_index=True)
+
+            st.divider()
+
+            # ── Portfolio Score ─────────────────────────────────────────────────
+            verdict, verdict_level = portfolio_verdict(score_total)
+            stars = score_to_stars(score_total)
+
+            sc1, sc2, sc3 = st.columns([1, 1, 2])
+            sc1.metric("Portfolio Score", f"{score_total:.1f} / 5.0")
+            sc2.markdown(f"<h2 style='margin:0'>{stars}</h2>", unsafe_allow_html=True)
+            with sc3:
+                if verdict_level == "success":
+                    st.success(verdict)
+                elif verdict_level == "warning":
+                    st.warning(verdict)
+                elif verdict_level == "error":
+                    st.error(verdict)
+                else:
+                    st.info(verdict)
+
+            b1, b2, b3, b4 = st.columns(4)
+            b1.metric("Sharpe", f"{score_sharpe:.1f} / 2.0")
+            b2.metric("Risk (Drawdown)", f"{score_dd:.2f} / 1.5")
+            b3.metric("Diversification", f"{score_div:.2f} / 1.0")
+            b4.metric("vs S&P 500", f"{score_out:.2f} / 0.5")
+
+            st.divider()
+
+            # ── Chart ───────────────────────────────────────────────────────────
+            fig = visualizer.plot_comparison(portfolio_value, benchmark_value)
+            st.plotly_chart(fig, use_container_width=True)
+
+            # ── Metrics ─────────────────────────────────────────────────────────
+            st.subheader("Portfolio Summary")
+
+            col1, col2, col3, col4 = st.columns(4)
+            col1.metric("Total Invested", f"€{initial_investment:,.2f}")
+            col2.metric("Current Value", f"€{results_df['Current Value (EUR)'].sum():,.2f}")
+            col3.metric("Portfolio Return", f"{portfolio_return:.2%}")
+            col4.metric("S&P 500 Return", f"{benchmark_return:.2%}")
+
+            col5, col6, col7, col8, col9 = st.columns(5)
+            col5.metric("Outperformance", f"{outperformance:.2%}")
+            col6.metric("Volatility", f"{volatility:.2%}")
+            col7.metric("Sharpe Ratio", f"{sharpe:.2f}")
+            col8.metric("Max Drawdown", f"{max_drawdown:.2%}")
+            col9.metric("Beta", f"{beta:.2f}")
+
+            # ── Sector Allocation ────────────────────────────────────────────────
+            st.subheader("Sector Allocation")
+            sector_fig = visualizer.plot_sector_allocation(sector_weights)
+            st.plotly_chart(sector_fig, use_container_width=True)
+
+            # ── Dividend Analysis ────────────────────────────────────────────────
+            st.subheader("Dividend Analysis")
+            div_col1, div_col2, div_col3 = st.columns(3)
+            div_col1.metric("Portfolio Dividend Yield", f"{portfolio_yield:.2%}")
+            div_col2.metric("Est. Annual Income", f"€{total_income:,.2f}")
+            div_col3.metric("Est. Monthly Income", f"€{total_income / 12:,.2f}")
+
+            if total_income > 0:
+                div_fig = visualizer.plot_dividend_income(dividend_df)
+                st.plotly_chart(div_fig, use_container_width=True)
             else:
-                st.info(f"Lump Sum outperformed DCA by €{diff:,.2f} over this period.")
+                st.info("None of the selected stocks pay dividends.")
 
-        # ── Export ─────────────────────────────────────────────────────────────
-        st.subheader("Export Results")
+            # ── Diversification Analysis ─────────────────────────────────────────
+            st.subheader("Diversification Analysis")
+            show_diversification_warnings(sector_weights, corr_matrix, tickers, weights)
 
-        values_df = pd.DataFrame({
-            "Portfolio Value (€)": portfolio_value,
-            "S&P 500 Equivalent (€)": benchmark_value,
-        })
+            # ── Individual Stock Performance ─────────────────────────────────────
+            if individual_values is not None:
+                st.subheader("Individual Stock Performance")
+                individual_fig = visualizer.plot_individual_stocks(individual_values)
+                st.plotly_chart(individual_fig, use_container_width=True)
 
-        summary = {
-            "Total Invested (€)": initial_investment,
-            "Current Value (€)": results_df["Current Value (EUR)"].sum(),
-            "Portfolio Return": f"{portfolio_return:.2%}",
-            "S&P 500 Return": f"{benchmark_return:.2%}",
-            "Outperformance": f"{outperformance:.2%}",
-            "Volatility": f"{volatility:.2%}",
-            "Sharpe Ratio": f"{sharpe:.2f}",
-            "Max Drawdown": f"{max_drawdown:.2%}",
-        }
-        summary_df = pd.DataFrame([summary])
+            # ── Annual Returns ───────────────────────────────────────────────────
+            st.subheader("Annual Returns")
+            annual_fig = visualizer.plot_annual_returns(annual_returns)
+            st.plotly_chart(annual_fig, use_container_width=True)
 
-        col_dl1, col_dl2 = st.columns(2)
-        col_dl1.download_button(
-            label="Download Portfolio Values (CSV)",
-            data=values_df.to_csv().encode("utf-8"),
-            file_name="portfolio_values.csv",
-            mime="text/csv",
-            use_container_width=True,
-        )
-        col_dl2.download_button(
-            label="Download Summary (CSV)",
-            data=summary_df.to_csv(index=False).encode("utf-8"),
-            file_name="portfolio_summary.csv",
-            mime="text/csv",
-            use_container_width=True,
-        )
+            # ── Risk Warnings ────────────────────────────────────────────────────
+            show_risk_warnings(max_drawdown, sharpe, outperformance, beta)
 
-        st.divider()
-        if st.button("Generate PDF Report", use_container_width=True, type="primary"):
-            with st.spinner("Generating PDF report — this may take a few seconds..."):
-                report_data = {**r, "visualizer": visualizer}
-                st.session_state["pdf_bytes"] = generate_report(report_data)
+            # ── Monte Carlo Simulation ───────────────────────────────────────────
+            st.subheader("Monte Carlo Simulation")
+            monte_fig = visualizer.plot_monte_carlo(simulation_df, initial_investment)
+            st.plotly_chart(monte_fig, use_container_width=True)
 
-        if "pdf_bytes" in st.session_state:
-            st.download_button(
-                label="Download PDF Report",
-                data=st.session_state["pdf_bytes"],
-                file_name=f"portfolio_report_{date.today()}.pdf",
-                mime="application/pdf",
+            final_values = simulation_df.iloc[-1]
+            mean_val = final_values.mean()
+            best_val = final_values.quantile(0.95)
+            worst_val = final_values.quantile(0.05)
+
+            mc_col1, mc_col2, mc_col3 = st.columns(3)
+            mc_col1.metric("Mean Final Value", f"€{mean_val:,.2f}", delta=format_delta(mean_val, initial_investment))
+            mc_col2.metric("Best Case (95th percentile)", f"€{best_val:,.2f}", delta=format_delta(best_val, initial_investment))
+            mc_col3.metric("Worst Case (5th percentile)", f"€{worst_val:,.2f}", delta=format_delta(worst_val, initial_investment))
+
+            # ── Efficient Frontier ───────────────────────────────────────────────
+            if frontier_df is not None:
+                st.subheader("Efficient Frontier")
+                frontier_fig = visualizer.plot_efficient_frontier(frontier_df, tickers)
+                st.plotly_chart(frontier_fig, use_container_width=True)
+
+            # ── Correlation Matrix ───────────────────────────────────────────────
+            if corr_matrix is not None:
+                st.subheader("Correlation Matrix")
+                corr_fig = visualizer.plot_correlation(corr_matrix)
+                st.plotly_chart(corr_fig, use_container_width=True)
+
+            # ── DCA Simulator ────────────────────────────────────────────────────
+            st.subheader("Dollar Cost Averaging Simulator")
+            st.caption("Compare investing a fixed amount every month vs. investing the total sum upfront.")
+
+            monthly_amount = st.number_input("Monthly Investment (€)", min_value=1.0, value=200.0, step=50.0)
+
+            if st.button("Simulate DCA", use_container_width=True):
+                dca_series, lump_sum_series, total_invested_dca = portfolio.calculate_dca(monthly_amount)
+                st.session_state["dca_res"] = {
+                    "dca_series": dca_series,
+                    "lump_sum_series": lump_sum_series,
+                    "total_invested": total_invested_dca,
+                }
+
+            if "dca_res" in st.session_state:
+                dr = st.session_state["dca_res"]
+                dca_fig = visualizer.plot_dca(dr["dca_series"], dr["lump_sum_series"], dr["total_invested"])
+                st.plotly_chart(dca_fig, use_container_width=True)
+
+                dca_final = dr["dca_series"].iloc[-1]
+                ls_final = dr["lump_sum_series"].iloc[-1]
+                total_invested_dca = dr["total_invested"]
+
+                dca_col1, dca_col2, dca_col3 = st.columns(3)
+                dca_col1.metric("Total Invested", f"€{total_invested_dca:,.2f}")
+                dca_col2.metric("DCA Final Value", f"€{dca_final:,.2f}", delta=format_delta(dca_final, total_invested_dca))
+                dca_col3.metric("Lump Sum Final Value", f"€{ls_final:,.2f}", delta=format_delta(ls_final, total_invested_dca))
+
+                diff = abs(dca_final - ls_final)
+                if dca_final > ls_final:
+                    st.success(f"DCA outperformed Lump Sum by €{diff:,.2f} over this period.")
+                else:
+                    st.info(f"Lump Sum outperformed DCA by €{diff:,.2f} over this period.")
+
+            # ── Portfolio News Feed ──────────────────────────────────────────────
+            st.subheader("Portfolio News")
+
+            if st.button("Load Latest News", use_container_width=True):
+                with st.spinner("Fetching news for all holdings..."):
+                    st.session_state["portfolio_news"] = fetch_portfolio_news(tuple(tickers))
+
+            if "portfolio_news" in st.session_state:
+                articles = st.session_state["portfolio_news"]
+                if articles:
+                    ticker_color = {
+                        t: _BADGE_COLORS[i % len(_BADGE_COLORS)]
+                        for i, t in enumerate(tickers)
+                    }
+                    for article in articles:
+                        color = ticker_color.get(article["ticker"], _BADGE_COLORS[0])
+                        badge = (
+                            f"<span style='background:{color};color:white;"
+                            f"padding:2px 10px;border-radius:12px;"
+                            f"font-size:11px;font-weight:700;letter-spacing:0.5px'>"
+                            f"{article['ticker']}</span>"
+                        )
+                        st.markdown(
+                            f"{badge}&nbsp;&nbsp;**[{article['title']}]({article['link']})**",
+                            unsafe_allow_html=True,
+                        )
+                        st.caption(f"{article['publisher']} · {article['date']}")
+                        st.divider()
+                else:
+                    st.info("No news found for the current holdings.")
+
+            # ── Export ───────────────────────────────────────────────────────────
+            st.subheader("Export Results")
+
+            values_df = pd.DataFrame({
+                "Portfolio Value (€)": portfolio_value,
+                "S&P 500 Equivalent (€)": benchmark_value,
+            })
+
+            summary = {
+                "Total Invested (€)": initial_investment,
+                "Current Value (€)": results_df["Current Value (EUR)"].sum(),
+                "Portfolio Return": f"{portfolio_return:.2%}",
+                "S&P 500 Return": f"{benchmark_return:.2%}",
+                "Outperformance": f"{outperformance:.2%}",
+                "Volatility": f"{volatility:.2%}",
+                "Sharpe Ratio": f"{sharpe:.2f}",
+                "Max Drawdown": f"{max_drawdown:.2%}",
+            }
+            summary_df = pd.DataFrame([summary])
+
+            col_dl1, col_dl2 = st.columns(2)
+            col_dl1.download_button(
+                label="Download Portfolio Values (CSV)",
+                data=values_df.to_csv().encode("utf-8"),
+                file_name="portfolio_values.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
+            col_dl2.download_button(
+                label="Download Summary (CSV)",
+                data=summary_df.to_csv(index=False).encode("utf-8"),
+                file_name="portfolio_summary.csv",
+                mime="text/csv",
                 use_container_width=True,
             )
 
-# ── Markowitz Optimization Tab ────────────────────────────────────────────────
-with tab_markowitz:
-    st.subheader("Markowitz Portfolio Optimization")
+            st.divider()
+            if st.button("Generate PDF Report", use_container_width=True, type="primary"):
+                with st.spinner("Generating PDF report — this may take a few seconds..."):
+                    report_data = {**r, "visualizer": visualizer}
+                    st.session_state["pdf_bytes"] = generate_report(report_data)
 
-    if "res" not in st.session_state:
-        st.info("Run a portfolio analysis first from the Portfolio Analysis tab.")
-    else:
-        r = st.session_state["res"]
-        portfolio = r["portfolio"]
-        tickers = r["tickers"]
-
-        if len(tickers) < 2:
-            st.warning("Markowitz optimization requires at least 2 stocks.")
-        else:
-            st.caption("Find the optimal allocation that maximizes the Sharpe Ratio given your constraints.")
-
-            mk_col1, mk_col2 = st.columns(2)
-            max_w_pct = mk_col1.slider("Max weight per stock (%)", min_value=10, max_value=100, value=100, step=5, format="%d%%")
-            min_w_pct = mk_col2.slider("Min weight per stock (%)", min_value=0, max_value=20, value=0, step=1, format="%d%%")
-
-            max_w = max_w_pct / 100
-            min_w = min_w_pct / 100
-            n = len(tickers)
-
-            feasible = (n * max_w >= 1.0) and (n * min_w <= 1.0)
-            if not feasible:
-                st.warning(
-                    f"Infeasible: {n} stocks × {max_w_pct}% max = {n * max_w_pct}% < 100%. "
-                    "Increase max weight or reduce min weight."
+            if "pdf_bytes" in st.session_state:
+                st.download_button(
+                    label="Download PDF Report",
+                    data=st.session_state["pdf_bytes"],
+                    file_name=f"portfolio_report_{date.today()}.pdf",
+                    mime="application/pdf",
+                    use_container_width=True,
                 )
 
-            if st.button("Optimize", use_container_width=True, disabled=not feasible):
-                with st.spinner("Optimizing weights..."):
-                    try:
-                        optimal_weights = portfolio.optimize_portfolio(min_weight=min_w, max_weight=max_w)
-                        st.session_state["markowitz_res"] = optimal_weights
-                    except ValueError as e:
-                        st.error(str(e))
+        # ── Markowitz Optimization Tab ──────────────────────────────────────────
+        with tab_markowitz:
+            st.subheader("Markowitz Portfolio Optimization")
 
-            if "markowitz_res" in st.session_state:
-                optimal_weights = st.session_state["markowitz_res"]
-                st.divider()
-                opt_col1, opt_col2 = st.columns([1, 2])
-                with opt_col1:
-                    st.markdown("**Optimal Weights:**")
-                    for t, w in optimal_weights.items():
-                        st.metric(t, f"{w:.1%}")
-                with opt_col2:
-                    opt_fig = go.Figure(go.Pie(
-                        labels=list(optimal_weights.keys()),
-                        values=list(optimal_weights.values()),
-                        hole=0.4,
-                    ))
-                    opt_fig.update_layout(title="Optimal Allocation", margin=dict(t=40, b=0, l=0, r=0))
-                    st.plotly_chart(opt_fig, use_container_width=True)
+            r = st.session_state["res"]
+            portfolio = r["portfolio"]
+            tickers = r["tickers"]
 
-# ── Stock Analysis Tab ─────────────────────────────────────────────────────────
-with tab_stock:
-    st.subheader("Stock Fundamental Analysis")
+            if len(tickers) < 2:
+                st.warning("Markowitz optimization requires at least 2 stocks.")
+            else:
+                st.caption("Find the optimal allocation that maximizes the Sharpe Ratio given your constraints.")
+
+                mk_col1, mk_col2 = st.columns(2)
+                max_w_pct = mk_col1.slider("Max weight per stock (%)", min_value=10, max_value=100, value=100, step=5, format="%d%%")
+                min_w_pct = mk_col2.slider("Min weight per stock (%)", min_value=0, max_value=20, value=0, step=1, format="%d%%")
+
+                max_w = max_w_pct / 100
+                min_w = min_w_pct / 100
+                n = len(tickers)
+
+                feasible = (n * max_w >= 1.0) and (n * min_w <= 1.0)
+                if not feasible:
+                    st.warning(
+                        f"Infeasible: {n} stocks × {max_w_pct}% max = {n * max_w_pct}% < 100%. "
+                        "Increase max weight or reduce min weight."
+                    )
+
+                if st.button("Optimize", use_container_width=True, disabled=not feasible):
+                    with st.spinner("Optimizing weights..."):
+                        try:
+                            optimal_weights = portfolio.optimize_portfolio(min_weight=min_w, max_weight=max_w)
+                            st.session_state["markowitz_res"] = optimal_weights
+                        except ValueError as e:
+                            st.error(str(e))
+
+                if "markowitz_res" in st.session_state:
+                    optimal_weights = st.session_state["markowitz_res"]
+                    st.divider()
+                    opt_col1, opt_col2 = st.columns([1, 2])
+                    with opt_col1:
+                        st.markdown("**Optimal Weights:**")
+                        for t, w in optimal_weights.items():
+                            st.metric(t, f"{w:.1%}")
+                    with opt_col2:
+                        opt_fig = go.Figure(go.Pie(
+                            labels=list(optimal_weights.keys()),
+                            values=list(optimal_weights.values()),
+                            hole=0.4,
+                        ))
+                        opt_fig.update_layout(title="Optimal Allocation", margin=dict(t=40, b=0, l=0, r=0))
+                        st.plotly_chart(opt_fig, use_container_width=True)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# STOCK ANALYSIS
+# ══════════════════════════════════════════════════════════════════════════════
+else:
+    st.title("Stock Analysis")
 
     db_sa = Database()
     all_stocks_sa = db_sa.get_all_stocks()
     db_sa.close()
 
     stock_options_sa = [f"{name} ({ticker})" for ticker, name, _ in all_stocks_sa]
-    selected_stock = st.selectbox("Select a Stock", options=stock_options_sa)
+    selected_stock = st.selectbox("Select a Stock or ETF", options=stock_options_sa)
     run_analysis = st.button("Run Analysis", use_container_width=True)
 
     if run_analysis and selected_stock:
@@ -887,23 +991,22 @@ with tab_stock:
     if "stock_res" in st.session_state:
         sr = st.session_state["stock_res"]
         stock_ticker = sr["stock_ticker"]
-        prices      = sr["prices"]
+        prices       = sr["prices"]
         tech_signals = sr["tech_signals"]
-        sma50       = sr["sma50"]
-        sma200      = sr["sma200"]
-        bb_upper    = sr["bb_upper"]
-        bb_lower    = sr["bb_lower"]
-        rsi_series  = sr["rsi_series"]
+        sma50        = sr["sma50"]
+        sma200       = sr["sma200"]
+        bb_upper     = sr["bb_upper"]
+        bb_lower     = sr["bb_lower"]
+        rsi_series   = sr["rsi_series"]
 
         visualizer_sa = Visualizer()
 
-        # ── ETF Analysis ───────────────────────────────────────────────────────
+        # ── ETF Analysis ────────────────────────────────────────────────────────
         if sr["is_etf"]:
             etf = sr["etf"]
             st.subheader(etf.fund_name())
             st.caption(f"{etf.fund_family()}  ·  {etf.category()}  ·  {sr['sector']}")
 
-            # Key metrics
             expense = etf.expense_ratio()
             aum = etf.total_assets()
             div_y = etf.dividend_yield()
@@ -917,45 +1020,37 @@ with tab_stock:
 
             st.divider()
 
-            # Performance returns
             ytd = etf.ytd_return()
             ret3 = etf.three_year_return()
             ret5 = etf.five_year_return()
 
             p1, p2, p3 = st.columns(3)
-            p1.metric("YTD Return",       f"{ytd:.2%}"  if ytd  else "N/A")
-            p2.metric("3Y Avg Return",    f"{ret3:.2%}" if ret3 else "N/A")
-            p3.metric("5Y Avg Return",    f"{ret5:.2%}" if ret5 else "N/A")
+            p1.metric("YTD Return",    f"{ytd:.2%}"  if ytd  else "N/A")
+            p2.metric("3Y Avg Return", f"{ret3:.2%}" if ret3 else "N/A")
+            p3.metric("5Y Avg Return", f"{ret5:.2%}" if ret5 else "N/A")
 
-            returns_chart = {
-                "YTD": ytd,
-                "3Y Avg": ret3,
-                "5Y Avg": ret5,
-            }
+            returns_chart = {"YTD": ytd, "3Y Avg": ret3, "5Y Avg": ret5}
             if any(v is not None for v in returns_chart.values()):
                 etf_ret_fig = visualizer_sa.plot_etf_returns(returns_chart)
                 st.plotly_chart(etf_ret_fig, use_container_width=True)
 
             st.divider()
 
-            # 52-week range
             hi = etf.fifty_two_week_high()
             lo = etf.fifty_two_week_low()
             nav_price = etf.nav()
             r1, r2, r3 = st.columns(3)
-            r1.metric("NAV / Price",     f"${nav_price:.2f}" if nav_price else "N/A")
-            r2.metric("52-Week High",    f"${hi:.2f}" if hi else "N/A")
-            r3.metric("52-Week Low",     f"${lo:.2f}" if lo else "N/A")
+            r1.metric("NAV / Price",  f"${nav_price:.2f}" if nav_price else "N/A")
+            r2.metric("52-Week High", f"${hi:.2f}" if hi else "N/A")
+            r3.metric("52-Week Low",  f"${lo:.2f}" if lo else "N/A")
 
             st.divider()
 
-            # Description
             desc = etf.description()
             if desc and desc != "No description available.":
                 with st.expander("Fund Description"):
                     st.write(desc)
 
-            # Dividend history
             st.subheader("Dividend History")
             dividends = etf.dividend_history()
             if not dividends.empty:
@@ -964,7 +1059,7 @@ with tab_stock:
             else:
                 st.info("This ETF does not pay dividends.")
 
-        # ── Stock Fundamental Analysis ─────────────────────────────────────────
+        # ── Stock Fundamental Analysis ───────────────────────────────────────────
         else:
             fa = sr["fa"]
             scores = sr["scores"]
@@ -996,7 +1091,6 @@ with tab_stock:
 
             st.divider()
 
-            # Peer Comparison
             st.subheader("Peer Comparison")
             if peers and sector:
                 st.caption(f"Sector: {sector} — comparing with {', '.join(t for t, _ in peers)}")
@@ -1048,9 +1142,9 @@ with tab_stock:
                 div_rate  = fa._info.get("dividendRate")
                 payout    = fa._info.get("payoutRatio")
                 dh_col1, dh_col2, dh_col3 = st.columns(3)
-                dh_col1.metric("Dividend Yield",      f"{div_yield:.2%}" if div_yield else "N/A")
-                dh_col2.metric("Annual Dividend Rate", f"${div_rate:.2f}" if div_rate else "N/A")
-                dh_col3.metric("Payout Ratio",         f"{payout:.2%}" if payout else "N/A")
+                dh_col1.metric("Dividend Yield",       f"{div_yield:.2%}" if div_yield else "N/A")
+                dh_col2.metric("Annual Dividend Rate",  f"${div_rate:.2f}" if div_rate else "N/A")
+                dh_col3.metric("Payout Ratio",          f"{payout:.2%}" if payout else "N/A")
             else:
                 st.info("This stock does not pay dividends.")
 
@@ -1065,7 +1159,7 @@ with tab_stock:
             else:
                 st.info("No recent news found for this stock.")
 
-        # ── Technical Analysis (both stocks and ETFs) ──────────────────────────
+        # ── Technical Analysis (stocks and ETFs) ────────────────────────────────
         st.divider()
         st.subheader("Technical Analysis")
 
