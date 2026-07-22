@@ -310,6 +310,98 @@ def fetch_portfolio_news(tickers: tuple, n_per_ticker: int = 6) -> list:
     return all_articles
 
 
+@st.cache_data(ttl=60)
+def fetch_market_data() -> list:
+    symbols = [
+        ("S&P 500",   "^GSPC"),
+        ("NASDAQ",    "^IXIC"),
+        ("Dow Jones", "^DJI"),
+        ("DAX",       "^GDAXI"),
+        ("FTSE 100",  "^FTSE"),
+        ("Apple",     "AAPL"),
+        ("NVIDIA",    "NVDA"),
+        ("Microsoft", "MSFT"),
+        ("Amazon",    "AMZN"),
+        ("Alphabet",  "GOOGL"),
+        ("Tesla",     "TSLA"),
+        ("Meta",      "META"),
+        ("Gold",      "GC=F"),
+        ("Oil (WTI)", "CL=F"),
+        ("Bitcoin",   "BTC-USD"),
+        ("EUR/USD",   "EURUSD=X"),
+    ]
+    items = []
+    for name, symbol in symbols:
+        try:
+            fi = yf.Ticker(symbol).fast_info
+            price = getattr(fi, "last_price", None)
+            prev  = getattr(fi, "previous_close", None)
+            if not price or not prev:
+                continue
+            chg = price - prev
+            pct = chg / prev
+            items.append({"name": name, "price": price, "chg": chg, "pct": pct})
+        except Exception:
+            continue
+    return items
+
+
+@st.cache_data(ttl=600)
+def fetch_market_news() -> list:
+    source_tickers = ("SPY", "QQQ", "AAPL", "MSFT", "NVDA", "TSLA", "META", "AMZN")
+    all_articles = []
+    seen: set = set()
+    for ticker in source_tickers:
+        try:
+            raw = yf.Ticker(ticker).news or []
+            for item in raw[:5]:
+                content = item.get("content", item)
+                title = content.get("title") or item.get("title", "")
+                if not title or title in seen:
+                    continue
+                seen.add(title)
+                link = (
+                    content.get("clickThroughUrl", {}).get("url")
+                    or content.get("canonicalUrl", {}).get("url")
+                    or item.get("link", "#")
+                )
+                publisher = (
+                    content.get("provider", {}).get("displayName")
+                    or item.get("publisher", "Unknown")
+                )
+                pub_date = content.get("pubDate") or ""
+                if not pub_date:
+                    ts = item.get("providerPublishTime")
+                    if ts:
+                        pub_date = _dt.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
+
+                # Extract best-resolution thumbnail
+                image_url = None
+                thumb = content.get("thumbnail") or item.get("thumbnail") or {}
+                if isinstance(thumb, dict):
+                    resolutions = thumb.get("resolutions", [])
+                    for res in sorted(resolutions, key=lambda r: r.get("width", 0)):
+                        if res.get("width", 0) >= 200:
+                            image_url = res.get("url")
+                            break
+                    if not image_url and resolutions:
+                        image_url = resolutions[-1].get("url")
+                    if not image_url:
+                        image_url = thumb.get("originalUrl")
+
+                all_articles.append({
+                    "title":     title,
+                    "link":      link,
+                    "publisher": publisher,
+                    "date":      pub_date,
+                    "image":     image_url,
+                })
+        except Exception:
+            continue
+    all_articles.sort(key=lambda x: x["date"], reverse=True)
+    return all_articles[:25]
+
+
 @st.cache_data(ttl=300)
 def fetch_watchlist_prices(tickers: tuple) -> dict:
     result = {}
@@ -442,7 +534,7 @@ stock_display = sorted([f"{n} ({t})" for t, n, _ in all_stocks])
 with st.sidebar:
     st.markdown("### Portfolio Analyzer")
     st.divider()
-    nav = st.radio("nav", ["My Portfolio", "Watchlist", "Stock Analysis"], label_visibility="collapsed")
+    nav = st.radio("nav", ["Home", "My Portfolio", "Watchlist", "Stock Analysis"], label_visibility="collapsed")
     if nav == "My Portfolio" and "res" in st.session_state:
         st.divider()
         if st.button("← Edit Portfolio", use_container_width=True):
@@ -450,9 +542,203 @@ with st.sidebar:
             st.rerun()
 
 # ══════════════════════════════════════════════════════════════════════════════
+# HOME
+# ══════════════════════════════════════════════════════════════════════════════
+if nav == "Home":
+    # ── Live scrolling ticker ───────────────────────────────────────────────────
+    with st.spinner("Loading market data..."):
+        market_data = fetch_market_data()
+
+    if market_data:
+        def _ticker_item(d):
+            sign = "+" if d["chg"] >= 0 else ""
+            cls  = "t-up" if d["chg"] >= 0 else "t-down"
+            arrow = "▲" if d["chg"] >= 0 else "▼"
+            price_str = f"{d['price']:,.2f}"
+            chg_str   = f"{sign}{d['chg']:,.2f} ({sign}{d['pct']:.2%})"
+            return (
+                f'<span class="t-item">'
+                f'<span class="t-name">{d["name"]}</span>'
+                f'<span class="t-price">{price_str}</span>'
+                f'<span class="{cls}">{arrow} {chg_str}</span>'
+                f'</span>'
+                f'<span class="t-sep">|</span>'
+            )
+
+        items_html = "".join(_ticker_item(d) for d in market_data)
+        duration = max(30, len(market_data) * 4)
+
+        st.markdown(f"""
+<style>
+.ticker-wrapper {{
+    width:100%; overflow:hidden;
+    background:linear-gradient(90deg,#0d1117,#161b22,#0d1117);
+    padding:13px 0; border-radius:10px;
+    border:1px solid rgba(255,255,255,0.07);
+    margin-bottom:28px;
+}}
+.ticker-track {{
+    display:inline-flex; width:max-content;
+    animation:ticker-move {duration}s linear infinite;
+}}
+.ticker-track:hover {{ animation-play-state:paused; cursor:default; }}
+@keyframes ticker-move {{
+    0%   {{ transform:translateX(0); }}
+    100% {{ transform:translateX(-50%); }}
+}}
+.t-item {{
+    display:inline-flex; align-items:center;
+    padding:0 22px; white-space:nowrap;
+    font-family:'Inter',system-ui,sans-serif; font-size:13px;
+}}
+.t-name  {{ color:#8b949e; font-weight:500; margin-right:8px; }}
+.t-price {{ color:#e6edf3; font-weight:700; margin-right:7px; font-variant-numeric:tabular-nums; }}
+.t-up    {{ color:#3fb950; font-weight:600; }}
+.t-down  {{ color:#f85149; font-weight:600; }}
+.t-sep   {{ color:#30363d; padding:0 2px; }}
+</style>
+<div class="ticker-wrapper">
+  <div class="ticker-track">
+    {items_html}{items_html}
+  </div>
+</div>
+""", unsafe_allow_html=True)
+    else:
+        st.info("Could not load market data. Check your connection.")
+
+    # ── Market news ─────────────────────────────────────────────────────────────
+    st.subheader("Market News")
+    st.caption("Latest financial headlines · refreshed every 10 minutes")
+
+    with st.spinner("Loading news..."):
+        market_news = fetch_market_news()
+
+    if market_news:
+        hero   = market_news[0]
+        rest   = market_news[1:22]
+
+        def _esc(s):
+            return s.replace('"', "&quot;").replace("'", "&#39;").replace("<", "&lt;").replace(">", "&gt;")
+
+        def _img_tag(url, cls):
+            if url:
+                return (
+                    f'<img src="{url}" class="{cls}" alt="" loading="lazy" '
+                    f'onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'">'
+                    f'<div class="nf-ph" style="display:none">📰</div>'
+                )
+            return '<div class="nf-ph">📰</div>'
+
+        # ── hero card ──────────────────────────────────────────────────────────
+        hero_img = _img_tag(hero["image"], "nf-hero-img")
+        hero_html = f"""
+<a class="nf-hero" href="{hero['link']}" target="_blank" rel="noopener noreferrer">
+  <div class="nf-hero-left">{hero_img}</div>
+  <div class="nf-hero-body">
+    <span class="nf-badge">{_esc(hero['publisher'])}</span>
+    <span class="nf-hero-title">{_esc(hero['title'])}</span>
+    <span class="nf-date">{_esc(hero['date'])}</span>
+  </div>
+</a>"""
+
+        # ── grid cards ────────────────────────────────────────────────────────
+        cards_html = ""
+        for a in rest:
+            img_tag = _img_tag(a["image"], "nf-card-img")
+            cards_html += f"""
+<a class="nf-card" href="{a['link']}" target="_blank" rel="noopener noreferrer">
+  <div class="nf-card-top">{img_tag}</div>
+  <div class="nf-card-body">
+    <span class="nf-badge">{_esc(a['publisher'])}</span>
+    <span class="nf-card-title">{_esc(a['title'])}</span>
+    <span class="nf-date">{_esc(a['date'])}</span>
+  </div>
+</a>"""
+
+        st.markdown(f"""
+<style>
+/* ── shared ── */
+.nf-badge {{
+  display:inline-block; font-size:10px; font-weight:700;
+  text-transform:uppercase; letter-spacing:.7px;
+  background:rgba(79,142,247,.15); color:#4F8EF7;
+  border-radius:4px; padding:2px 8px; width:fit-content;
+}}
+.nf-date {{ font-size:11px; color:#8b949e; margin-top:auto; }}
+.nf-ph {{
+  width:100%; display:flex; align-items:center; justify-content:center;
+  font-size:36px; background:linear-gradient(135deg,#161b22,#0d1117);
+  color:#30363d;
+}}
+
+/* ── hero ── */
+.nf-hero {{
+  display:grid; grid-template-columns:1fr 1fr;
+  border-radius:14px; overflow:hidden;
+  border:1px solid rgba(255,255,255,.08);
+  text-decoration:none; margin-bottom:28px;
+  transition:border-color .2s, box-shadow .2s;
+}}
+.nf-hero:hover {{
+  border-color:rgba(79,142,247,.5);
+  box-shadow:0 8px 32px rgba(79,142,247,.12);
+}}
+.nf-hero-left {{ overflow:hidden; min-height:260px; }}
+.nf-hero-img  {{ width:100%; height:100%; object-fit:cover; display:block; }}
+.nf-ph        {{ min-height:260px; }}
+.nf-hero-body {{
+  display:flex; flex-direction:column; gap:14px; padding:28px 28px 24px;
+  background:rgba(255,255,255,.025);
+}}
+.nf-hero-title {{
+  font-size:20px; font-weight:700; color:#e6edf3; line-height:1.4;
+  display:-webkit-box; -webkit-line-clamp:5; -webkit-box-orient:vertical;
+  overflow:hidden;
+}}
+
+/* ── grid ── */
+.nf-grid {{
+  display:grid; grid-template-columns:repeat(3,1fr); gap:18px;
+}}
+.nf-card {{
+  display:flex; flex-direction:column;
+  border-radius:12px; overflow:hidden;
+  border:1px solid rgba(255,255,255,.07);
+  text-decoration:none;
+  background:rgba(255,255,255,.02);
+  transition:transform .2s, border-color .2s, box-shadow .2s;
+}}
+.nf-card:hover {{
+  transform:translateY(-4px);
+  border-color:rgba(79,142,247,.4);
+  box-shadow:0 6px 24px rgba(0,0,0,.25);
+}}
+.nf-card-top {{ overflow:hidden; height:170px; }}
+.nf-card-img {{ width:100%; height:170px; object-fit:cover; display:block;
+  transition:transform .3s; }}
+.nf-card:hover .nf-card-img {{ transform:scale(1.04); }}
+.nf-card-top .nf-ph {{ height:170px; min-height:unset; }}
+.nf-card-body {{
+  display:flex; flex-direction:column; gap:8px;
+  padding:14px 16px 16px; flex:1;
+}}
+.nf-card-title {{
+  font-size:13px; font-weight:600; color:#e6edf3; line-height:1.45;
+  display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical;
+  overflow:hidden;
+}}
+</style>
+
+{hero_html}
+<div class="nf-grid">{cards_html}</div>
+""", unsafe_allow_html=True)
+    else:
+        st.info("No news available at this time.")
+
+# ══════════════════════════════════════════════════════════════════════════════
 # MY PORTFOLIO
 # ══════════════════════════════════════════════════════════════════════════════
-if nav == "My Portfolio":
+elif nav == "My Portfolio":
     page = st.session_state.get("page", "setup")
 
     # ── Setup / Input Screen ────────────────────────────────────────────────────
