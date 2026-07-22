@@ -310,6 +310,27 @@ def fetch_portfolio_news(tickers: tuple, n_per_ticker: int = 6) -> list:
     return all_articles
 
 
+@st.cache_data(ttl=300)
+def fetch_watchlist_prices(tickers: tuple) -> dict:
+    result = {}
+    for ticker in tickers:
+        try:
+            fi = yf.Ticker(ticker).fast_info
+            price = getattr(fi, "last_price", None)
+            prev  = getattr(fi, "previous_close", None)
+            result[ticker] = {
+                "price":     price,
+                "prev":      prev,
+                "day_chg":   (price - prev) if (price and prev) else None,
+                "day_chg_pct": ((price - prev) / prev) if (price and prev) else None,
+                "year_high": getattr(fi, "year_high", None),
+                "year_low":  getattr(fi, "year_low", None),
+            }
+        except Exception:
+            result[ticker] = {}
+    return result
+
+
 def analyze_real_portfolio(transactions_df):
     rows = []
     value_series_list = []
@@ -421,7 +442,7 @@ stock_display = sorted([f"{n} ({t})" for t, n, _ in all_stocks])
 with st.sidebar:
     st.markdown("### Portfolio Analyzer")
     st.divider()
-    nav = st.radio("nav", ["My Portfolio", "Stock Analysis"], label_visibility="collapsed")
+    nav = st.radio("nav", ["My Portfolio", "Watchlist", "Stock Analysis"], label_visibility="collapsed")
     if nav == "My Portfolio" and "res" in st.session_state:
         st.divider()
         if st.button("← Edit Portfolio", use_container_width=True):
@@ -920,6 +941,118 @@ if nav == "My Portfolio":
                         ))
                         opt_fig.update_layout(title="Optimal Allocation", margin=dict(t=40, b=0, l=0, r=0))
                         st.plotly_chart(opt_fig, use_container_width=True)
+
+# ══════════════════════════════════════════════════════════════════════════════
+# WATCHLIST
+# ══════════════════════════════════════════════════════════════════════════════
+elif nav == "Watchlist":
+    st.title("Watchlist")
+    st.markdown("Track stocks and ETFs you're considering buying.")
+    st.divider()
+
+    db_wl = Database()
+    watchlist_items = db_wl.get_watchlist()
+
+    # ── Add to watchlist ────────────────────────────────────────────────────────
+    with st.expander("+ Add to Watchlist", expanded=len(watchlist_items) == 0):
+        wl_col1, wl_col2, wl_col3 = st.columns([3, 1, 1])
+        wl_stock = wl_col1.selectbox(
+            "Stock / ETF", options=stock_display, key="wl_select"
+        )
+        wl_target = wl_col2.number_input(
+            "Target Price ($)", min_value=0.0, value=0.0, step=1.0, key="wl_target"
+        )
+        wl_notes = wl_col3.text_input("Notes (optional)", key="wl_notes")
+
+        if st.button("Add to Watchlist", use_container_width=True, type="primary"):
+            wl_ticker = wl_stock.split("(")[-1].rstrip(")").strip().upper()
+            wl_name   = wl_stock.split(" (")[0].strip()
+            existing  = [row[0] for row in watchlist_items]
+            if wl_ticker in existing:
+                st.warning(f"**{wl_ticker}** is already in your watchlist.")
+            else:
+                target = wl_target if wl_target > 0 else None
+                db_wl.add_to_watchlist(wl_ticker, wl_name, target, wl_notes or None)
+                db_wl.close()
+                st.rerun()
+
+    db_wl.close()
+
+    # ── Watchlist table ─────────────────────────────────────────────────────────
+    db_wl2 = Database()
+    watchlist_items = db_wl2.get_watchlist()
+    db_wl2.close()
+
+    if not watchlist_items:
+        st.info("Your watchlist is empty. Add stocks or ETFs above to start tracking them.")
+    else:
+        tickers_wl = tuple(row[0] for row in watchlist_items)
+        with st.spinner("Fetching live prices..."):
+            prices_wl = fetch_watchlist_prices(tickers_wl)
+
+        rows_wl = []
+        for ticker, name, target_price, notes, added_date in watchlist_items:
+            p = prices_wl.get(ticker, {})
+            price     = p.get("price")
+            day_chg   = p.get("day_chg")
+            day_pct   = p.get("day_chg_pct")
+            yr_high   = p.get("year_high")
+            yr_low    = p.get("year_low")
+            to_target = ((target_price - price) / price) if (target_price and price) else None
+            rows_wl.append({
+                "Ticker":       ticker,
+                "Company":      name,
+                "Price ($)":    price,
+                "Day ($)":      day_chg,
+                "Day (%)":      day_pct,
+                "52W Low":      yr_low,
+                "52W High":     yr_high,
+                "Target ($)":   target_price,
+                "To Target":    to_target,
+                "Added":        added_date,
+                "Notes":        notes or "",
+            })
+
+        wl_df = pd.DataFrame(rows_wl)
+
+        def _fmt(v, fmt):
+            return fmt.format(v) if v is not None else "—"
+
+        styled_wl = (
+            wl_df.style
+            .format({
+                "Price ($)":  lambda v: _fmt(v, "${:.2f}"),
+                "Day ($)":    lambda v: (f"+${v:.2f}" if v >= 0 else f"-${abs(v):.2f}") if v is not None else "—",
+                "Day (%)":    lambda v: _fmt(v, "{:+.2%}"),
+                "52W Low":    lambda v: _fmt(v, "${:.2f}"),
+                "52W High":   lambda v: _fmt(v, "${:.2f}"),
+                "Target ($)": lambda v: _fmt(v, "${:.2f}"),
+                "To Target":  lambda v: _fmt(v, "{:+.2%}"),
+            })
+            .map(
+                lambda v: "color: #2ECC71; font-weight: 600" if isinstance(v, float) and v > 0
+                          else ("color: #E74C3C; font-weight: 600" if isinstance(v, float) and v < 0 else ""),
+                subset=["Day ($)", "Day (%)", "To Target"],
+            )
+        )
+        st.dataframe(styled_wl, use_container_width=True, hide_index=True)
+
+        st.caption(f"Prices cached for 5 minutes · {len(watchlist_items)} item(s) tracked")
+
+        # ── Remove ──────────────────────────────────────────────────────────────
+        st.divider()
+        rm_col1, rm_col2 = st.columns([3, 1])
+        remove_choice = rm_col1.selectbox(
+            "Remove from watchlist",
+            options=[f"{row[1]} ({row[0]})" for row in watchlist_items],
+            label_visibility="collapsed",
+        )
+        if rm_col2.button("Remove", use_container_width=True):
+            rm_ticker = remove_choice.split("(")[-1].rstrip(")").strip()
+            db_rm = Database()
+            db_rm.remove_from_watchlist(rm_ticker)
+            db_rm.close()
+            st.rerun()
 
 # ══════════════════════════════════════════════════════════════════════════════
 # STOCK ANALYSIS

@@ -17,6 +17,15 @@ class Database:
                 sector  TEXT
             )
         """)
+        self.conn.execute("""
+            CREATE TABLE IF NOT EXISTS watchlist (
+                ticker       TEXT PRIMARY KEY,
+                name         TEXT NOT NULL,
+                target_price REAL,
+                notes        TEXT,
+                added_date   TEXT NOT NULL
+            )
+        """)
         self.conn.commit()
 
     def insert_stock(self, ticker, name, sector):
@@ -56,6 +65,33 @@ class Database:
             (sector, exclude_ticker, limit)
         )
         return cursor.fetchall()
+
+    def add_to_watchlist(self, ticker, name, target_price=None, notes=None):
+        from datetime import date
+        self.conn.execute(
+            "INSERT OR IGNORE INTO watchlist (ticker, name, target_price, notes, added_date) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (ticker, name, target_price, notes, str(date.today())),
+        )
+        self.conn.commit()
+
+    def remove_from_watchlist(self, ticker):
+        self.conn.execute("DELETE FROM watchlist WHERE ticker = ?", (ticker,))
+        self.conn.commit()
+
+    def get_watchlist(self):
+        cursor = self.conn.execute(
+            "SELECT ticker, name, target_price, notes, added_date "
+            "FROM watchlist ORDER BY added_date DESC"
+        )
+        return cursor.fetchall()
+
+    def update_watchlist_target(self, ticker, target_price, notes):
+        self.conn.execute(
+            "UPDATE watchlist SET target_price = ?, notes = ? WHERE ticker = ?",
+            (target_price, notes, ticker),
+        )
+        self.conn.commit()
 
     def close(self):
         self.conn.close()
