@@ -265,6 +265,15 @@ def format_delta(value, initial):
 
 _BADGE_COLORS = ["#4F8EF7", "#FF9800", "#2ECC71", "#E74C3C", "#9B59B6", "#1ABC9C"]
 
+_EARNINGS_MAJORS = (
+    "AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA",
+    "JPM", "V", "MA", "UNH", "HD", "JNJ", "XOM", "BAC",
+    "WMT", "AVGO", "LLY", "CVX", "COST", "MRK", "ABBV",
+    "NFLX", "AMD", "ORCL", "CRM", "ADBE", "QCOM", "GS",
+    "MS", "BA", "CAT", "GE", "IBM", "NOW", "INTU", "PG",
+    "KO", "PEP", "NKE", "SBUX", "DIS", "PYPL", "INTC",
+)
+
 
 @st.cache_data(ttl=900)
 def fetch_portfolio_news(tickers: tuple, n_per_ticker: int = 6) -> list:
@@ -423,6 +432,121 @@ def fetch_watchlist_prices(tickers: tuple) -> dict:
     return result
 
 
+@st.cache_data(ttl=3600)
+def fetch_earnings_calendar(tickers: tuple) -> list:
+    today_d = date.today()
+    cutoff  = today_d + timedelta(days=90)
+    results = []
+    for ticker in tickers:
+        try:
+            cal = yf.Ticker(ticker).calendar
+            if not cal:
+                continue
+            if hasattr(cal, "to_dict"):
+                cal = {k: (list(v.values())[0] if hasattr(v, "values") else v)
+                       for k, v in cal.to_dict().items()}
+            raw = cal.get("Earnings Date", [])
+            if not raw:
+                continue
+            earn_date = raw[0] if isinstance(raw, (list, tuple)) else raw
+            if hasattr(earn_date, "date"):
+                earn_date = earn_date.date()
+            if not isinstance(earn_date, type(today_d)):
+                continue
+            if earn_date < today_d or earn_date > cutoff:
+                continue
+            results.append({
+                "ticker":   ticker,
+                "date":     earn_date,
+                "eps_est":  cal.get("Earnings Average"),
+                "rev_est":  cal.get("Revenue Average"),
+            })
+        except Exception:
+            continue
+    results.sort(key=lambda x: x["date"])
+    return results
+
+
+def _render_earnings(earnings: list, name_map: dict):
+    if not earnings:
+        st.info("No upcoming earnings found in the next 90 days.")
+        return
+
+    today_d          = date.today()
+    this_week_start  = today_d - timedelta(days=today_d.weekday())
+    next_week_start  = this_week_start + timedelta(weeks=1)
+
+    from collections import defaultdict
+    weeks: dict = defaultdict(list)
+    for ev in earnings:
+        wk = ev["date"] - timedelta(days=ev["date"].weekday())
+        weeks[wk].append(ev)
+
+    for week_start in sorted(weeks.keys()):
+        week_end = week_start + timedelta(days=4)
+        if week_start == this_week_start:
+            label = f"This Week · {week_start.strftime('%b %d')} – {week_end.strftime('%b %d')}"
+            label_color = "#4F8EF7"
+        elif week_start == next_week_start:
+            label = f"Next Week · {week_start.strftime('%b %d')} – {week_end.strftime('%b %d')}"
+            label_color = "#2ECC71"
+        else:
+            label = f"{week_start.strftime('%b %d')} – {week_end.strftime('%b %d, %Y')}"
+            label_color = "#8b949e"
+
+        st.markdown(
+            f"<div style='font-size:12px;font-weight:700;color:{label_color};"
+            f"text-transform:uppercase;letter-spacing:.6px;margin:22px 0 8px;'>"
+            f"{label}</div>",
+            unsafe_allow_html=True,
+        )
+
+        rows_html = ""
+        for j, ev in enumerate(weeks[week_start]):
+            badge_color = _BADGE_COLORS[j % len(_BADGE_COLORS)]
+            is_today    = ev["date"] == today_d
+            bg          = "rgba(255,152,0,.09)" if is_today else "rgba(255,255,255,.025)"
+            border      = "#FF9800"             if is_today else "rgba(255,255,255,.07)"
+            today_tag   = (
+                ' <span style="font-size:10px;background:#FF9800;color:#fff;'
+                'padding:1px 6px;border-radius:4px;font-weight:700;margin-left:6px;">TODAY</span>'
+                if is_today else ""
+            )
+            name = name_map.get(ev["ticker"], ev["ticker"])
+
+            eps_str = f'${ev["eps_est"]:.2f}' if ev.get("eps_est") is not None else "—"
+            rev = ev.get("rev_est")
+            if rev:
+                if rev >= 1e12:   rev_str = f"${rev/1e12:.1f}T"
+                elif rev >= 1e9:  rev_str = f"${rev/1e9:.1f}B"
+                elif rev >= 1e6:  rev_str = f"${rev/1e6:.1f}M"
+                else:              rev_str = f"${rev:.0f}"
+            else:
+                rev_str = "—"
+
+            rows_html += f"""
+<div style="display:flex;align-items:center;gap:14px;padding:11px 16px;
+            margin-bottom:6px;border-radius:9px;background:{bg};
+            border:1px solid {border};">
+  <span style="color:#8b949e;font-size:12px;min-width:90px;flex-shrink:0;">
+    {ev["date"].strftime("%a, %b %d")}{today_tag}
+  </span>
+  <span style="background:{badge_color};color:#fff;padding:3px 10px;border-radius:6px;
+               font-weight:700;font-size:12px;min-width:62px;text-align:center;
+               flex-shrink:0;">{ev["ticker"]}</span>
+  <span style="flex:1;font-weight:600;color:#f0f6fc;font-size:13px;">{name}</span>
+  <span style="font-size:12px;color:#8b949e;min-width:110px;text-align:right;flex-shrink:0;">
+    EPS est &nbsp;<strong style="color:#3fb950;">{eps_str}</strong>
+  </span>
+  <span style="font-size:12px;color:#8b949e;min-width:120px;text-align:right;flex-shrink:0;">
+    Rev est &nbsp;<strong style="color:#4F8EF7;">{rev_str}</strong>
+  </span>
+</div>"""
+
+        st.markdown(rows_html, unsafe_allow_html=True)
+    st.caption(f"{len(earnings)} upcoming earnings event(s) · next 90 days")
+
+
 def analyze_real_portfolio(transactions_df):
     rows = []
     value_series_list = []
@@ -534,7 +658,7 @@ stock_display = sorted([f"{n} ({t})" for t, n, _ in all_stocks])
 with st.sidebar:
     st.markdown("### Portfolio Analyzer")
     st.divider()
-    nav = st.radio("nav", ["Home", "My Portfolio", "Watchlist", "Stock Analysis"], label_visibility="collapsed")
+    nav = st.radio("nav", ["Home", "My Portfolio", "Watchlist", "Earnings", "Stock Analysis"], label_visibility="collapsed")
     if nav == "My Portfolio" and "res" in st.session_state:
         st.divider()
         if st.button("← Edit Portfolio", use_container_width=True):
@@ -614,123 +738,92 @@ if nav == "Home":
         market_news = fetch_market_news()
 
     if market_news:
-        hero   = market_news[0]
-        rest   = market_news[1:22]
+        hero = market_news[0]
+        rest = market_news[1:22]
 
         def _esc(s):
-            return s.replace('"', "&quot;").replace("'", "&#39;").replace("<", "&lt;").replace(">", "&gt;")
+            return (s or "").replace("&", "&amp;").replace('"', "&quot;")     \
+                            .replace("'", "&#39;").replace("<", "&lt;")        \
+                            .replace(">", "&gt;")
 
-        def _img_tag(url, cls):
+        def _img_tag(url, h):
+            ph = f'<div style="height:{h}px;display:flex;align-items:center;justify-content:center;font-size:36px;background:linear-gradient(135deg,#161b22,#0d1117);color:#30363d;">📰</div>'
             if url:
                 return (
-                    f'<img src="{url}" class="{cls}" alt="" loading="lazy" '
-                    f'onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'">'
-                    f'<div class="nf-ph" style="display:none">📰</div>'
+                    f'<img src="{url}" alt="" loading="lazy"'
+                    f' style="width:100%;height:{h}px;object-fit:cover;display:block;"'
+                    f' onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'">'
+                    + ph.replace("display:flex", "display:none")
                 )
-            return '<div class="nf-ph">📰</div>'
+            return ph
 
         # ── hero card ──────────────────────────────────────────────────────────
-        hero_img = _img_tag(hero["image"], "nf-hero-img")
         hero_html = f"""
-<a class="nf-hero" href="{hero['link']}" target="_blank" rel="noopener noreferrer">
-  <div class="nf-hero-left">{hero_img}</div>
-  <div class="nf-hero-body">
-    <span class="nf-badge">{_esc(hero['publisher'])}</span>
-    <span class="nf-hero-title">{_esc(hero['title'])}</span>
-    <span class="nf-date">{_esc(hero['date'])}</span>
+<div style="display:grid;grid-template-columns:1fr 1fr;border-radius:14px;
+            overflow:hidden;border:1px solid rgba(255,255,255,.09);
+            margin-bottom:28px;position:relative;">
+  <a href="{hero['link']}" target="_blank" rel="noopener noreferrer"
+     style="position:absolute;inset:0;z-index:1;"></a>
+  <div style="overflow:hidden;min-height:260px;">
+    {_img_tag(hero["image"], 260)}
   </div>
-</a>"""
+  <div style="display:flex;flex-direction:column;gap:14px;padding:28px;
+              background:rgba(255,255,255,.025);">
+    <span style="display:inline-block;font-size:10px;font-weight:700;
+                 text-transform:uppercase;letter-spacing:.7px;
+                 background:rgba(79,142,247,.18);color:#4F8EF7;
+                 border-radius:4px;padding:2px 8px;width:fit-content;">
+      {_esc(hero["publisher"])}
+    </span>
+    <span style="font-size:19px;font-weight:700;color:#f0f6fc;line-height:1.4;">
+      {_esc(hero["title"])}
+    </span>
+    <span style="font-size:11px;color:#8b949e;margin-top:auto;">
+      {_esc(hero["date"])}
+    </span>
+  </div>
+</div>"""
 
         # ── grid cards ────────────────────────────────────────────────────────
         cards_html = ""
         for a in rest:
-            img_tag = _img_tag(a["image"], "nf-card-img")
             cards_html += f"""
-<a class="nf-card" href="{a['link']}" target="_blank" rel="noopener noreferrer">
-  <div class="nf-card-top">{img_tag}</div>
-  <div class="nf-card-body">
-    <span class="nf-badge">{_esc(a['publisher'])}</span>
-    <span class="nf-card-title">{_esc(a['title'])}</span>
-    <span class="nf-date">{_esc(a['date'])}</span>
+<div style="display:flex;flex-direction:column;border-radius:12px;
+            overflow:hidden;border:1px solid rgba(255,255,255,.07);
+            background:#0d1117;position:relative;
+            transition:transform .2s,border-color .2s,box-shadow .2s;">
+  <a href="{a['link']}" target="_blank" rel="noopener noreferrer"
+     style="position:absolute;inset:0;z-index:1;"></a>
+  <div style="overflow:hidden;height:160px;flex-shrink:0;">
+    {_img_tag(a["image"], 160)}
   </div>
-</a>"""
+  <div style="display:flex;flex-direction:column;gap:8px;
+              padding:14px 16px 16px;flex:1;">
+    <span style="display:inline-block;font-size:10px;font-weight:700;
+                 text-transform:uppercase;letter-spacing:.7px;
+                 background:rgba(79,142,247,.18);color:#4F8EF7;
+                 border-radius:4px;padding:2px 7px;width:fit-content;">
+      {_esc(a["publisher"])}
+    </span>
+    <span style="font-size:13px;font-weight:600;color:#f0f6fc;
+                 line-height:1.45;overflow:hidden;
+                 display:-webkit-box;-webkit-line-clamp:3;
+                 -webkit-box-orient:vertical;">
+      {_esc(a["title"])}
+    </span>
+    <span style="font-size:11px;color:#8b949e;margin-top:auto;">
+      {_esc(a["date"])}
+    </span>
+  </div>
+</div>"""
 
         st.markdown(f"""
 <style>
-/* ── shared ── */
-.nf-badge {{
-  display:inline-block; font-size:10px; font-weight:700;
-  text-transform:uppercase; letter-spacing:.7px;
-  background:rgba(79,142,247,.15); color:#4F8EF7;
-  border-radius:4px; padding:2px 8px; width:fit-content;
-}}
-.nf-date {{ font-size:11px; color:#8b949e; margin-top:auto; }}
-.nf-ph {{
-  width:100%; display:flex; align-items:center; justify-content:center;
-  font-size:36px; background:linear-gradient(135deg,#161b22,#0d1117);
-  color:#30363d;
-}}
-
-/* ── hero ── */
-.nf-hero {{
-  display:grid; grid-template-columns:1fr 1fr;
-  border-radius:14px; overflow:hidden;
-  border:1px solid rgba(255,255,255,.08);
-  text-decoration:none; margin-bottom:28px;
-  transition:border-color .2s, box-shadow .2s;
-}}
-.nf-hero:hover {{
-  border-color:rgba(79,142,247,.5);
-  box-shadow:0 8px 32px rgba(79,142,247,.12);
-}}
-.nf-hero-left {{ overflow:hidden; min-height:260px; }}
-.nf-hero-img  {{ width:100%; height:100%; object-fit:cover; display:block; }}
-.nf-ph        {{ min-height:260px; }}
-.nf-hero-body {{
-  display:flex; flex-direction:column; gap:14px; padding:28px 28px 24px;
-  background:rgba(255,255,255,.025);
-}}
-.nf-hero-title {{
-  font-size:20px; font-weight:700; color:#e6edf3; line-height:1.4;
-  display:-webkit-box; -webkit-line-clamp:5; -webkit-box-orient:vertical;
-  overflow:hidden;
-}}
-
-/* ── grid ── */
-.nf-grid {{
-  display:grid; grid-template-columns:repeat(3,1fr); gap:18px;
-}}
-.nf-card {{
-  display:flex; flex-direction:column;
-  border-radius:12px; overflow:hidden;
-  border:1px solid rgba(255,255,255,.07);
-  text-decoration:none;
-  background:rgba(255,255,255,.02);
-  transition:transform .2s, border-color .2s, box-shadow .2s;
-}}
-.nf-card:hover {{
-  transform:translateY(-4px);
-  border-color:rgba(79,142,247,.4);
-  box-shadow:0 6px 24px rgba(0,0,0,.25);
-}}
-.nf-card-top {{ overflow:hidden; height:170px; }}
-.nf-card-img {{ width:100%; height:170px; object-fit:cover; display:block;
-  transition:transform .3s; }}
-.nf-card:hover .nf-card-img {{ transform:scale(1.04); }}
-.nf-card-top .nf-ph {{ height:170px; min-height:unset; }}
-.nf-card-body {{
-  display:flex; flex-direction:column; gap:8px;
-  padding:14px 16px 16px; flex:1;
-}}
-.nf-card-title {{
-  font-size:13px; font-weight:600; color:#e6edf3; line-height:1.45;
-  display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical;
-  overflow:hidden;
-}}
 </style>
-
 {hero_html}
-<div class="nf-grid">{cards_html}</div>
+<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:18px;">
+  {cards_html}
+</div>
 """, unsafe_allow_html=True)
     else:
         st.info("No news available at this time.")
@@ -1339,6 +1432,49 @@ elif nav == "Watchlist":
             db_rm.remove_from_watchlist(rm_ticker)
             db_rm.close()
             st.rerun()
+
+# ══════════════════════════════════════════════════════════════════════════════
+# EARNINGS CALENDAR
+# ══════════════════════════════════════════════════════════════════════════════
+elif nav == "Earnings":
+    st.title("Earnings Calendar")
+    st.caption("Upcoming earnings reports for the next 90 days · dates from Yahoo Finance")
+    st.divider()
+
+    db_earn = Database()
+    name_map = {t: n for t, n, _ in db_earn.get_all_stocks()}
+    db_earn.close()
+
+    tab_port, tab_market = st.tabs(["My Portfolio Holdings", "Major Companies"])
+
+    with tab_port:
+        if "res" not in st.session_state:
+            st.info(
+                "Analyze your portfolio first in **My Portfolio** to see upcoming "
+                "earnings for your holdings."
+            )
+        else:
+            port_tickers = tuple(st.session_state["res"]["tickers"])
+            st.caption(f"Tracking {len(port_tickers)} holding(s): {', '.join(port_tickers)}")
+
+            if st.button("Refresh", key="refresh_port_earn"):
+                st.cache_data.clear()
+
+            with st.spinner("Fetching earnings dates for your holdings..."):
+                port_earnings = fetch_earnings_calendar(port_tickers)
+
+            _render_earnings(port_earnings, name_map)
+
+    with tab_market:
+        st.caption(f"Tracking {len(_EARNINGS_MAJORS)} major companies")
+
+        if st.button("Refresh", key="refresh_market_earn"):
+            st.cache_data.clear()
+
+        with st.spinner(f"Fetching earnings for {len(_EARNINGS_MAJORS)} companies — this may take a moment..."):
+            market_earnings = fetch_earnings_calendar(_EARNINGS_MAJORS)
+
+        _render_earnings(market_earnings, name_map)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # STOCK ANALYSIS
