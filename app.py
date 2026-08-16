@@ -982,7 +982,7 @@ elif nav == "My Portfolio":
 
     # ── Analysis Screen ─────────────────────────────────────────────────────────
     else:
-        tab_portfolio, tab_markowitz = st.tabs(["Portfolio Analysis", "Markowitz Optimization"])
+        tab_portfolio, tab_markowitz, tab_rebalance = st.tabs(["Portfolio Analysis", "Markowitz Optimization", "Rebalancing"])
 
         # ── Portfolio Analysis Tab ──────────────────────────────────────────────
         with tab_portfolio:
@@ -1320,6 +1320,167 @@ elif nav == "My Portfolio":
                         ))
                         opt_fig.update_layout(title="Optimal Allocation", margin=dict(t=40, b=0, l=0, r=0))
                         st.plotly_chart(opt_fig, use_container_width=True)
+
+        # ── Rebalancing Tab ─────────────────────────────────────────────────────
+        with tab_rebalance:
+            st.subheader("Portfolio Rebalancing Tool")
+            st.caption("Set your target allocation and see exactly what to buy or sell.")
+
+            r = st.session_state["res"]
+            results_df = r["results_df"]
+
+            # Aggregate by ticker (handles multiple purchases of same stock)
+            ticker_data = (
+                results_df.groupby("Ticker")
+                .agg(Company=("Company", "first"),
+                     current_value=("Current Value (EUR)", "sum"),
+                     current_price=("Current Price", "last"))
+                .reset_index()
+            )
+            total_value = ticker_data["current_value"].sum()
+            ticker_data["current_weight"] = ticker_data["current_value"] / total_value
+
+            st.markdown(f"**Current Portfolio Value:** €{total_value:,.2f}")
+            st.divider()
+
+            rb_col1, rb_col2 = st.columns(2)
+            extra_cash = rb_col1.number_input(
+                "Additional cash to invest (€)", min_value=0.0, value=0.0, step=100.0
+            )
+            threshold_pct = rb_col2.slider(
+                "Ignore trades smaller than (%)", min_value=0, max_value=10, value=1
+            )
+            threshold = threshold_pct / 100
+
+            st.divider()
+            st.markdown("**Set your target weights** — must sum to exactly 100%")
+
+            n_tickers = len(ticker_data)
+            cols_per_row = min(n_tickers, 4)
+            input_cols = st.columns(cols_per_row)
+            target_weights: dict = {}
+            for i, row in ticker_data.iterrows():
+                col = input_cols[i % cols_per_row]
+                current_pct = row["current_weight"] * 100
+                val = col.number_input(
+                    f"{row['Ticker']}  *(now {current_pct:.1f}%)*",
+                    min_value=0.0, max_value=100.0,
+                    value=round(current_pct, 1),
+                    step=0.5,
+                    key=f"rb_target_{row['Ticker']}",
+                )
+                target_weights[row["Ticker"]] = val / 100
+
+            total_target = sum(target_weights.values())
+            diff = total_target - 1.0
+            if abs(diff) < 0.001:
+                st.success(f"Target weights sum to 100% ✓")
+                weights_valid = True
+            elif diff > 0:
+                st.warning(f"Weights sum to {total_target:.1%} — over by {diff:.1%}. Reduce until total = 100%.")
+                weights_valid = False
+            else:
+                st.warning(f"Weights sum to {total_target:.1%} — under by {abs(diff):.1%}. Increase until total = 100%.")
+                weights_valid = False
+
+            if st.button("Calculate Rebalancing →", use_container_width=True,
+                         type="primary", disabled=not weights_valid):
+                total_new = total_value + extra_cash
+                rebal_rows = []
+                for _, row in ticker_data.iterrows():
+                    t = row["Ticker"]
+                    cur_val  = row["current_value"]
+                    cur_w    = row["current_weight"]
+                    tgt_w    = target_weights[t]
+                    tgt_val  = total_new * tgt_w
+                    trade    = tgt_val - cur_val
+                    price    = row["current_price"]
+                    shares   = abs(trade) / price if price > 0 else 0
+                    drift_pp = (tgt_w - cur_w) * 100
+
+                    if abs(tgt_w - cur_w) < threshold:
+                        action, amt, sh = "HOLD", 0.0, 0.0
+                    elif trade > 0:
+                        action, amt, sh = "BUY",  trade, shares
+                    else:
+                        action, amt, sh = "SELL", abs(trade), shares
+
+                    rebal_rows.append({
+                        "Ticker":           t,
+                        "Company":          row["Company"],
+                        "Current Value (€)": cur_val,
+                        "Current Weight":   cur_w,
+                        "Target Weight":    tgt_w,
+                        "Drift (pp)":       drift_pp,
+                        "Action":           action,
+                        "Amount (€)":       amt,
+                        "Shares":           round(sh, 4),
+                    })
+                st.session_state["rebalance_res"] = rebal_rows
+
+            if "rebalance_res" in st.session_state:
+                rows = st.session_state["rebalance_res"]
+                st.divider()
+
+                total_buy  = sum(r["Amount (€)"] for r in rows if r["Action"] == "BUY")
+                total_sell = sum(r["Amount (€)"] for r in rows if r["Action"] == "SELL")
+                net_needed = total_buy - total_sell
+
+                rm1, rm2, rm3 = st.columns(3)
+                rm1.metric("Total to Buy",  f"€{total_buy:,.2f}")
+                rm2.metric("Total to Sell", f"€{total_sell:,.2f}")
+                rm3.metric("Net Cash Needed", f"€{net_needed:,.2f}",
+                           delta="cash surplus" if net_needed < 0 else "cash required",
+                           delta_color="normal" if net_needed < 0 else "inverse")
+
+                rebal_df = pd.DataFrame(rows)
+                styled_rb = (
+                    rebal_df.style
+                    .format({
+                        "Current Value (€)": "€{:.2f}",
+                        "Current Weight":    "{:.1%}",
+                        "Target Weight":     "{:.1%}",
+                        "Drift (pp)":        "{:+.1f}pp",
+                        "Amount (€)":        "€{:.2f}",
+                        "Shares":            "{:.4f}",
+                    })
+                    .map(
+                        lambda v: (
+                            "color:#2ECC71;font-weight:700" if v == "BUY"
+                            else "color:#E74C3C;font-weight:700" if v == "SELL"
+                            else "color:#8b949e"
+                        ),
+                        subset=["Action"],
+                    )
+                    .map(
+                        lambda v: "color:#2ECC71" if isinstance(v, float) and v > 0.5
+                                  else ("color:#E74C3C" if isinstance(v, float) and v < -0.5 else ""),
+                        subset=["Drift (pp)"],
+                    )
+                )
+                st.dataframe(styled_rb, use_container_width=True, hide_index=True)
+
+                # Current vs target chart
+                rb_fig = go.Figure()
+                ticker_labels = [r["Ticker"] for r in rows]
+                rb_fig.add_trace(go.Bar(
+                    name="Current", x=ticker_labels,
+                    y=[r["Current Weight"] * 100 for r in rows],
+                    marker_color="#4F8EF7", marker_line_width=0,
+                ))
+                rb_fig.add_trace(go.Bar(
+                    name="Target", x=ticker_labels,
+                    y=[r["Target Weight"] * 100 for r in rows],
+                    marker_color="#FF9800", marker_line_width=0, opacity=0.85,
+                ))
+                rb_fig.update_layout(
+                    title="Current vs Target Allocation",
+                    yaxis_title="Weight (%)",
+                    barmode="group", bargap=0.25, bargroupgap=0.05,
+                    legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                )
+                rb_viz = Visualizer()
+                st.plotly_chart(rb_viz._style(rb_fig), use_container_width=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
 # WATCHLIST
