@@ -1807,6 +1807,179 @@ else:
 
             st.divider()
 
+            # ── Analyst Consensus ────────────────────────────────────────────
+            st.subheader("Analyst Consensus")
+
+            target_high   = fa._info.get("targetHighPrice")
+            target_low    = fa._info.get("targetLowPrice")
+            target_mean   = fa._info.get("targetMeanPrice")
+            target_median = fa._info.get("targetMedianPrice")
+            n_analysts    = fa._info.get("numberOfAnalystOpinions")
+            rec_key       = (fa._info.get("recommendationKey") or "").lower()
+            current_px    = fa._info.get("currentPrice") or fa._info.get("regularMarketPrice")
+
+            if target_mean and current_px and target_low and target_high:
+                _REC_MAP = {
+                    "strong_buy":   ("Strong Buy",   "#2ECC71"),
+                    "buy":          ("Buy",          "#27AE60"),
+                    "hold":         ("Hold",         "#F39C12"),
+                    "underperform": ("Underperform", "#E67E22"),
+                    "sell":         ("Sell",         "#E74C3C"),
+                }
+                rec_label, rec_color = _REC_MAP.get(rec_key, ("N/A", "#8b949e"))
+                upside = (target_mean - current_px) / current_px
+                upside_color = "#2ECC71" if upside >= 0 else "#E74C3C"
+                upside_str   = f"{upside:+.1%}"
+                n_str        = str(int(n_analysts)) if n_analysts else "—"
+                span         = max(target_high - target_low, 0.01)
+
+                def _pos(price):
+                    return max(4, min(96, (price - target_low) / span * 100))
+
+                cur_p  = _pos(current_px)
+                mean_p = _pos(target_mean)
+
+                show_median = (
+                    target_median is not None
+                    and abs(target_median - target_mean) > span * 0.015
+                )
+                median_html = ""
+                if show_median:
+                    med_p = _pos(target_median)
+                    median_html = (
+                        f'<div style="position:absolute;left:{med_p:.1f}%;top:0;transform:translateX(-50%);text-align:center;white-space:nowrap;">'
+                        f'<div style="color:#9B59B6;font-size:9px;font-weight:700;letter-spacing:.05em;">MEDIAN</div>'
+                        f'<div style="color:#9B59B6;font-size:11px;">${target_median:.2f}</div>'
+                        f'<div style="width:1px;height:14px;background:#9B59B6;opacity:.5;margin:4px auto 0;"></div>'
+                        f'</div>'
+                        f'<div style="position:absolute;left:{med_p:.1f}%;top:38px;width:12px;height:12px;'
+                        f'background:#9B59B6;border-radius:50%;transform:translateX(-50%);border:2px solid #0d1117;"></div>'
+                    )
+
+                panel_html = f"""
+                <div style="background:#0d1117;border:1px solid #30363d;border-radius:14px;
+                            padding:26px 28px 20px;margin:8px 0;
+                            font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;">
+
+                  <!-- Stats row -->
+                  <div style="display:flex;align-items:stretch;gap:20px;margin-bottom:32px;">
+
+                    <!-- Recommendation badge -->
+                    <div style="background:{rec_color}15;border:1.5px solid {rec_color}70;
+                                border-radius:10px;padding:14px 22px;text-align:center;
+                                min-width:136px;display:flex;flex-direction:column;
+                                justify-content:center;flex-shrink:0;">
+                      <div style="color:{rec_color};font-size:1.15rem;font-weight:700;">{rec_label}</div>
+                      <div style="color:#8b949e;font-size:9.5px;margin-top:5px;letter-spacing:.06em;">WALL ST. CONSENSUS</div>
+                    </div>
+
+                    <div style="width:1px;background:#21262d;flex-shrink:0;"></div>
+
+                    <!-- Stats grid -->
+                    <div style="display:flex;gap:32px;align-items:center;flex:1;flex-wrap:wrap;">
+                      <div>
+                        <div style="color:#8b949e;font-size:9.5px;letter-spacing:.06em;margin-bottom:4px;">MEAN TARGET</div>
+                        <div style="color:#f0f6fc;font-size:1.2rem;font-weight:600;">${target_mean:.2f}</div>
+                        <div style="color:{upside_color};font-size:11.5px;margin-top:3px;">{upside_str} upside</div>
+                      </div>
+                      <div>
+                        <div style="color:#8b949e;font-size:9.5px;letter-spacing:.06em;margin-bottom:4px;">CURRENT PRICE</div>
+                        <div style="color:#f0f6fc;font-size:1.2rem;font-weight:600;">${current_px:.2f}</div>
+                      </div>
+                      <div>
+                        <div style="color:#8b949e;font-size:9.5px;letter-spacing:.06em;margin-bottom:4px;">12-MONTH RANGE</div>
+                        <div style="color:#f0f6fc;font-size:1.05rem;font-weight:500;">
+                          ${target_low:.2f}<span style="color:#484f58;padding:0 5px;">–</span>${target_high:.2f}
+                        </div>
+                      </div>
+                      <div>
+                        <div style="color:#8b949e;font-size:9.5px;letter-spacing:.06em;margin-bottom:4px;">ANALYST COVERAGE</div>
+                        <div style="color:#f0f6fc;font-size:1.2rem;font-weight:600;">{n_str}</div>
+                        <div style="color:#8b949e;font-size:11px;margin-top:3px;">analysts</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Price target range visualization -->
+                  <div style="position:relative;height:120px;margin:0 6px;">
+
+                    <!-- Track base -->
+                    <div style="position:absolute;left:0;right:0;top:44px;height:5px;
+                                background:#21262d;border-radius:3px;"></div>
+                    <!-- Track gradient fill -->
+                    <div style="position:absolute;left:0;right:0;top:44px;height:5px;
+                                background:linear-gradient(90deg,#1a3a5c,#4F8EF7 45%,#27AE60);
+                                border-radius:3px;opacity:.65;"></div>
+
+                    <!-- LOW endpoint dot -->
+                    <div style="position:absolute;left:0;top:40px;width:13px;height:13px;
+                                background:#0d1117;border:2px solid #484f58;border-radius:50%;
+                                transform:translateX(-50%);"></div>
+                    <!-- HIGH endpoint dot -->
+                    <div style="position:absolute;right:0;top:40px;width:13px;height:13px;
+                                background:#0d1117;border:2px solid #484f58;border-radius:50%;
+                                transform:translateX(50%);"></div>
+
+                    <!-- LOW label (below track, left-aligned) -->
+                    <div style="position:absolute;left:0;top:62px;white-space:nowrap;">
+                      <div style="color:#484f58;font-size:9px;letter-spacing:.05em;">LOW</div>
+                      <div style="color:#8b949e;font-size:11px;">${target_low:.2f}</div>
+                    </div>
+                    <!-- HIGH label (below track, right-aligned) -->
+                    <div style="position:absolute;right:0;top:62px;white-space:nowrap;text-align:right;">
+                      <div style="color:#484f58;font-size:9px;letter-spacing:.05em;">HIGH</div>
+                      <div style="color:#8b949e;font-size:11px;">${target_high:.2f}</div>
+                    </div>
+
+                    <!-- MEAN label (above track) -->
+                    <div style="position:absolute;left:{mean_p:.1f}%;top:0;
+                                transform:translateX(-50%);text-align:center;white-space:nowrap;">
+                      <div style="color:#F39C12;font-size:9px;font-weight:700;letter-spacing:.05em;">MEAN</div>
+                      <div style="color:#F39C12;font-size:11px;font-weight:600;">${target_mean:.2f}</div>
+                      <div style="width:1px;height:14px;background:#F39C12;opacity:.5;margin:4px auto 0;"></div>
+                    </div>
+                    <!-- MEAN diamond marker (on track) -->
+                    <div style="position:absolute;left:{mean_p:.1f}%;top:38px;width:13px;height:13px;
+                                background:#F39C12;transform:translateX(-50%) rotate(45deg);
+                                border:2px solid #0d1117;border-radius:2px;"></div>
+
+                    {median_html}
+
+                    <!-- CURRENT price chevron (above track, points down to it) -->
+                    <div style="position:absolute;left:{cur_p:.1f}%;top:30px;transform:translateX(-50%);">
+                      <div style="width:0;height:0;
+                                  border-left:5px solid transparent;
+                                  border-right:5px solid transparent;
+                                  border-top:9px solid #E74C3C;
+                                  margin:0 auto;"></div>
+                    </div>
+                    <!-- CURRENT label (below track) -->
+                    <div style="position:absolute;left:{cur_p:.1f}%;top:62px;
+                                transform:translateX(-50%);text-align:center;white-space:nowrap;">
+                      <div style="color:#E74C3C;font-size:9px;font-weight:700;letter-spacing:.05em;">CURRENT</div>
+                      <div style="color:#c9d1d9;font-size:11px;font-weight:500;">${current_px:.2f}</div>
+                    </div>
+
+                  </div>
+
+                  <!-- Footer -->
+                  <div style="margin-top:4px;padding-top:14px;border-top:1px solid #21262d;
+                              display:flex;justify-content:space-between;">
+                    <span style="color:#484f58;font-size:10px;">Source: Wall Street analyst estimates · Yahoo Finance</span>
+                    <span style="color:#484f58;font-size:10px;">12-month price target horizon</span>
+                  </div>
+
+                </div>
+                """
+                st.markdown(
+                    "\n".join(line.lstrip() for line in panel_html.strip().splitlines()),
+                    unsafe_allow_html=True,
+                )
+            else:
+                st.info("No analyst coverage data available for this stock.")
+
+            st.divider()
+
             st.subheader("Peer Comparison")
             if peers and sector:
                 st.caption(f"Sector: {sector} — comparing with {', '.join(t for t, _ in peers)}")
